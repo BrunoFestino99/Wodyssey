@@ -3,10 +3,15 @@ import { join } from 'node:path';
 import { database } from './database';
 
 async function migrate(): Promise<void> {
-  await database.query('CREATE EXTENSION IF NOT EXISTS pgcrypto');
-  const migration = await readFile(join(__dirname, 'migrations', '001-account-access.sql'), 'utf8');
-  await database.query(migration);
-  await database.end();
+  try {
+    const migration = await readFile(
+      join(__dirname, 'migrations', '001-account-access.sql'),
+      'utf8',
+    );
+    await database.query(migration);
+  } finally {
+    await database.end();
+  }
 }
 
 void migrate().catch((error: unknown) => {

@@ -1,130 +1,441 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { ApiError, request } from './api';
 import { copy } from './copy';
 
-const API = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 type Account = { email: string };
 
-async function send(path: string, body?: unknown): Promise<Response> {
-  return fetch(`${API}${path}`, {
-    method: body === undefined ? 'GET' : 'POST',
-    credentials: 'include',
-    headers: body === undefined ? undefined : { 'content-type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-}
-
-function errorMessage(status: number): string {
-  if (status === 400) return copy.errors.invalidLink;
-  if (status === 401) return copy.errors.credentials;
-  if (status === 429) return copy.errors.rateLimit;
+function errorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 400) return copy.errors.validation;
+    if (error.status === 401) return copy.errors.credentials;
+    if (error.status === 429) return copy.errors.rateLimit;
+  }
   return copy.errors.generic;
 }
 
-function Page({ children }: { children: ReactNode }) {
-  return <main className="page"><header className="brand"><span className="brand-mark" aria-hidden="true">W</span><span>{copy.brand}</span></header>{children}<footer>{copy.footer}</footer></main>;
-}
-
-function Card({ eyebrow, title, children }: { eyebrow: string; title: string; children: ReactNode }) {
-  return <section className="card"><p className="eyebrow">{eyebrow}</p><h1>{title}</h1>{children}</section>;
-}
-
-function App() {
-  const [path, setPath] = useState(window.location.pathname);
-  const [account, setAccount] = useState<Account | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  function navigate(href: string) {
-    window.history.pushState({}, '', href);
-    setPath(window.location.pathname);
-  }
-
+function Card({
+  eyebrow,
+  title,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  children: ReactNode;
+}) {
+  const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
-    const pop = () => setPath(window.location.pathname);
-    window.addEventListener('popstate', pop);
-    return () => window.removeEventListener('popstate', pop);
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    send('/auth/me').then(async (response) => {
-      if (active && response.ok) setAccount(await response.json() as Account);
-      if (active) setLoading(false);
-    }).catch(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [path]);
-
-  if (loading) return <Page><div className="loading" role="status">{copy.loading}</div></Page>;
-  if (path === '/verify') return <Verify navigate={navigate} />;
-  if (path === '/reset') return <Reset navigate={navigate} />;
-  if (path === '/forgot') return <Forgot navigate={navigate} />;
-  if (account && path !== '/login' && path !== '/register') return <PrivateHome account={account} onSignOut={async () => { await send('/auth/logout', {}); setAccount(null); navigate('/login'); }} />;
-  if (path === '/register') return <Register navigate={navigate} />;
-  return <Login navigate={navigate} />;
+    heading.current?.focus({ preventScroll: true });
+  }, [title]);
+  return (
+    <section className="card">
+      <p className="eyebrow">{eyebrow}</p>
+      <h1 ref={heading} tabIndex={-1}>
+        {title}
+      </h1>
+      {children}
+    </section>
+  );
 }
 
-function Register({ navigate }: { navigate: (href: string) => void }) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+function ActionForm({
+  action,
+  label,
+  children,
+  secondary = false,
+}: {
+  action: (data: FormData) => Promise<void>;
+  label: string;
+  children?: ReactNode;
+  secondary?: boolean;
+}) {
+  const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
-  const [submitted, setSubmitted] = useState(false);
-  async function submit(event: FormEvent) {
-    event.preventDefault(); setError('');
+  const submitting = useRef(false);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (submitting.current) return;
+    const data = new FormData(event.currentTarget);
+    submitting.current = true;
+    setPending(true);
+    setError('');
     try {
-      const response = await send('/auth/register', { email, password });
-      if (!response.ok) { setError(errorMessage(response.status)); return; }
-      sessionStorage.setItem('pending-verification-email', email.trim().toLowerCase());
-      setSubmitted(true);
-    } catch { setError(errorMessage(500)); }
+      await action(data);
+    } catch (failure) {
+      setError(errorMessage(failure));
+    } finally {
+      submitting.current = false;
+      setPending(false);
+    }
   }
-  if (submitted) return <Page><Card eyebrow={copy.verificationEyebrow} title={copy.checkEmail}><p className="lede">{copy.registrationConfirmation.replace('{email}', email)}</p><button className="text-button" onClick={() => navigate('/login')}>{copy.backToSignIn}</button></Card></Page>;
-  return <Page><Card eyebrow={copy.registrationEyebrow} title={copy.registrationTitle}><p className="lede">{copy.registrationDescription}</p><form onSubmit={submit}>
-    <label htmlFor="email">{copy.email}</label><input id="email" name="email" type="email" autoComplete="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} />
-    <label htmlFor="password">{copy.password}</label><input id="password" name="password" type="password" autoComplete="new-password" minLength={12} maxLength={128} required value={password} onChange={(event) => setPassword(event.target.value)} /><p className="hint">{copy.passwordHint}</p>
-    {error && <p className="error" role="alert">{error}</p>}<button className="primary" type="submit">{copy.createAccount}</button>
-  </form><p className="switch">{copy.existingAccount} <a href="/login" onClick={(event) => { event.preventDefault(); navigate('/login'); }}>{copy.signIn}</a></p></Card></Page>;
+  return (
+    <form onSubmit={submit} aria-busy={pending}>
+      <fieldset disabled={pending}>{children}</fieldset>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      <button className={secondary ? 'secondary' : 'primary'} type="submit" disabled={pending}>
+        {pending ? copy.working : label}
+      </button>
+    </form>
+  );
 }
 
-function Login({ navigate }: { navigate: (href: string) => void }) {
-  const [email, setEmail] = useState(''); const [password, setPassword] = useState(''); const [error, setError] = useState('');
-  async function submit(event: FormEvent) {
-    event.preventDefault(); setError('');
-    try { const response = await send('/auth/login', { email, password }); if (!response.ok) { setError(errorMessage(response.status)); return; } window.history.pushState({}, '', '/home'); window.dispatchEvent(new PopStateEvent('popstate')); }
-    catch { setError(errorMessage(500)); }
-  }
-  return <Page><Card eyebrow={copy.loginEyebrow} title={copy.loginTitle}><p className="lede">{copy.loginDescription}</p><form onSubmit={submit}>
-    <label htmlFor="email">{copy.email}</label><input id="email" name="email" type="email" autoComplete="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} />
-    <div className="label-row"><label htmlFor="password">{copy.password}</label><a href="/forgot" onClick={(event) => { event.preventDefault(); navigate('/forgot'); }}>{copy.forgotPassword}</a></div><input id="password" name="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} />
-    {error && <p className="error" role="alert">{error}</p>}<button className="primary" type="submit">{copy.signIn}</button>
-  </form><p className="switch">{copy.newAccount} <a href="/register" onClick={(event) => { event.preventDefault(); navigate('/register'); }}>{copy.createAccount}</a></p></Card></Page>;
+function EmailField({ defaultValue = '' }: { defaultValue?: string }) {
+  return (
+    <>
+      <label htmlFor="email">{copy.email}</label>
+      <input
+        id="email"
+        name="email"
+        type="email"
+        autoComplete="email"
+        required
+        maxLength={254}
+        defaultValue={defaultValue}
+      />
+    </>
+  );
 }
 
-function Verify({ navigate }: { navigate: (href: string) => void }) {
-  const token = new URLSearchParams(window.location.search).get('token') ?? '';
-  const [state, setState] = useState<'loading' | 'verified' | 'invalid'>('loading');
-  const [resent, setResent] = useState(false);
-  const [email, setEmail] = useState(() => sessionStorage.getItem('pending-verification-email') ?? '');
-  const [error, setError] = useState('');
-  useEffect(() => { send('/auth/verification/consume', { token }).then((response) => setState(response.ok ? 'verified' : 'invalid')).catch(() => setState('invalid')); }, [token]);
-  async function resend(event: FormEvent) { event.preventDefault(); setError(''); try { const response = await send('/auth/verification/resend', { email }); if (!response.ok) { setError(errorMessage(response.status)); return; } setResent(true); sessionStorage.setItem('pending-verification-email', email.trim().toLowerCase()); } catch { setError(errorMessage(500)); } }
-  return <Page><Card eyebrow={copy.emailVerificationEyebrow} title={state === 'loading' ? copy.verifying : state === 'verified' ? copy.emailVerified : copy.invalidLinkTitle}>
-    {state === 'verified' ? <><p className="lede">{copy.verifiedDescription}</p><button className="primary" onClick={() => navigate('/login')}>{copy.signIn}</button></> : state === 'invalid' ? <><p className="lede">{copy.invalidLinkDescription}</p>{resent ? <p className="success" role="status">{copy.resentVerification}</p> : <form onSubmit={resend}><label htmlFor="email">{copy.email}</label><input id="email" type="email" autoComplete="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} />{error && <p className="error" role="alert">{error}</p>}<button className="primary" type="submit">{copy.resendVerification}</button></form>}<p className="switch"><a href="/login" onClick={(event) => { event.preventDefault(); navigate('/login'); }}>{copy.backToSignIn}</a></p></> : <p className="lede">{copy.verifyingDescription}</p>}
-  </Card></Page>;
+function PasswordField({
+  isNew = false,
+  label = copy.password,
+}: {
+  isNew?: boolean;
+  label?: string;
+}) {
+  return (
+    <>
+      <label htmlFor="password">{label}</label>
+      <input
+        id="password"
+        name="password"
+        type="password"
+        autoComplete={isNew ? 'new-password' : 'current-password'}
+        required
+        minLength={isNew ? 12 : undefined}
+        maxLength={128}
+        aria-describedby={isNew ? 'password-hint' : undefined}
+      />
+      {isNew && (
+        <p id="password-hint" className="hint">
+          {copy.passwordHint}
+        </p>
+      )}
+    </>
+  );
 }
 
-function Forgot({ navigate }: { navigate: (href: string) => void }) {
-  const [email, setEmail] = useState(''); const [sent, setSent] = useState(false); const [error, setError] = useState('');
-  async function submit(event: FormEvent) { event.preventDefault(); setError(''); try { const response = await send('/auth/password/forgot', { email }); if (!response.ok) { setError(errorMessage(response.status)); return; } setSent(true); } catch { setError(errorMessage(500)); } }
-  return <Page><Card eyebrow={copy.recoveryEyebrow} title={copy.resetTitle}>{sent ? <><p className="lede">{copy.resetSent}</p><p className="switch"><a href="/login" onClick={(event) => { event.preventDefault(); navigate('/login'); }}>{copy.backToSignIn}</a></p></> : <><p className="lede">{copy.recoveryDescription}</p><form onSubmit={submit}><label htmlFor="email">{copy.email}</label><input id="email" type="email" autoComplete="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} />{error && <p className="error" role="alert">{error}</p>}<button className="primary" type="submit">{copy.sendReset}</button></form><p className="switch"><a href="/login" onClick={(event) => { event.preventDefault(); navigate('/login'); }}>{copy.backToSignIn}</a></p></>}</Card></Page>;
+function credentials(data: FormData) {
+  return { email: String(data.get('email')).trim(), password: String(data.get('password')) };
 }
 
-function Reset({ navigate }: { navigate: (href: string) => void }) {
-  const [password, setPassword] = useState(''); const [done, setDone] = useState(false); const [error, setError] = useState('');
-  async function submit(event: FormEvent) { event.preventDefault(); setError(''); try { const response = await send('/auth/password/reset', { token: new URLSearchParams(window.location.search).get('token'), password }); if (!response.ok) { setError(errorMessage(response.status)); return; } setDone(true); } catch { setError(errorMessage(500)); } }
-  return <Page><Card eyebrow={copy.recoveryEyebrow} title={done ? copy.passwordUpdated : copy.choosePassword}>{done ? <><p className="lede">{copy.passwordUpdatedDescription}</p><button className="primary" onClick={() => navigate('/login')}>{copy.signIn}</button></> : <form onSubmit={submit}><label htmlFor="password">{copy.newPassword}</label><input id="password" type="password" autoComplete="new-password" minLength={12} maxLength={128} required value={password} onChange={(event) => setPassword(event.target.value)} /><p className="hint">{copy.passwordHint}</p>{error && <p className="error" role="alert">{error}</p>}<button className="primary" type="submit">{copy.resetPassword}</button></form>}</Card></Page>;
+function ResendVerification({ email }: { email?: string }) {
+  const [sent, setSent] = useState(false);
+  return (
+    <>
+      <ActionForm
+        label={copy.resendVerification}
+        secondary
+        action={async (data) => {
+          await request('/auth/verification/resend', {
+            email: email ?? String(data.get('email')).trim(),
+          });
+          setSent(true);
+        }}
+      >
+        {!email && (
+          <EmailField defaultValue={sessionStorage.getItem('pending-verification-email') ?? ''} />
+        )}
+      </ActionForm>
+      {sent && (
+        <p className="success" role="status">
+          {copy.resentVerification}
+        </p>
+      )}
+    </>
+  );
 }
 
-function PrivateHome({ account, onSignOut }: { account: Account; onSignOut: () => void }) {
-  return <Page><Card eyebrow={copy.yourAccount} title={copy.privateTitle}><p className="lede">{copy.privateDescription}</p><p className="account-email">{copy.signedInAs} <strong>{account.email}</strong></p><button className="secondary" onClick={onSignOut}>{copy.signOut}</button></Card></Page>;
+function Register() {
+  const [registeredEmail, setRegisteredEmail] = useState('');
+  if (registeredEmail)
+    return (
+      <Card eyebrow={copy.verificationEyebrow} title={copy.checkEmail}>
+        <p className="lede">{copy.registrationConfirmation.replace('{email}', registeredEmail)}</p>
+        <ResendVerification email={registeredEmail} />
+        <p className="switch">
+          <a href="/login">{copy.backToSignIn}</a>
+        </p>
+      </Card>
+    );
+  return (
+    <Card eyebrow={copy.registrationEyebrow} title={copy.registrationTitle}>
+      <p className="lede">{copy.registrationDescription}</p>
+      <ActionForm
+        label={copy.createAccount}
+        action={async (data) => {
+          const values = credentials(data);
+          await request('/auth/register', values);
+          sessionStorage.setItem('pending-verification-email', values.email);
+          setRegisteredEmail(values.email);
+        }}
+      >
+        <EmailField />
+        <PasswordField isNew />
+      </ActionForm>
+      <p className="switch">
+        {copy.existingAccount} <a href="/login">{copy.signIn}</a>
+      </p>
+    </Card>
+  );
 }
 
-export { App };
+function Login() {
+  return (
+    <Card eyebrow={copy.loginEyebrow} title={copy.loginTitle}>
+      <p className="lede">{copy.loginDescription}</p>
+      <ActionForm
+        label={copy.signIn}
+        action={async (data) => {
+          await request('/auth/login', credentials(data));
+          window.location.assign('/home');
+        }}
+      >
+        <EmailField />
+        <PasswordField />
+        <a className="forgot-link" href="/forgot">
+          {copy.forgotPassword}
+        </a>
+      </ActionForm>
+      <p className="switch">
+        {copy.newAccount} <a href="/register">{copy.createAccount}</a>
+      </p>
+    </Card>
+  );
+}
+
+function Verify() {
+  const token = new URLSearchParams(window.location.search).get('token');
+  const [state, setState] = useState<'ready' | 'verified' | 'invalid'>(token ? 'ready' : 'invalid');
+  const title =
+    state === 'verified'
+      ? copy.emailVerified
+      : state === 'invalid'
+        ? copy.invalidLinkTitle
+        : copy.verifyTitle;
+  return (
+    <Card eyebrow={copy.emailVerificationEyebrow} title={title}>
+      {state === 'ready' && (
+        <>
+          <p className="lede">{copy.verifyDescription}</p>
+          <ActionForm
+            label={copy.verifyEmail}
+            action={async () => {
+              try {
+                await request('/auth/verification/consume', { token });
+                setState('verified');
+                window.history.replaceState({}, '', '/verify');
+              } catch (error) {
+                if (error instanceof ApiError && error.status === 400) setState('invalid');
+                else throw error;
+              }
+            }}
+          />
+        </>
+      )}
+      {state === 'verified' && (
+        <>
+          <p className="lede">{copy.verifiedDescription}</p>
+          <a className="primary button-link" href="/login">
+            {copy.signIn}
+          </a>
+        </>
+      )}
+      {state === 'invalid' && (
+        <>
+          <p className="lede">{copy.invalidLinkDescription}</p>
+          <ResendVerification />
+          <p className="switch">
+            <a href="/login">{copy.backToSignIn}</a>
+          </p>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function Forgot() {
+  const [sent, setSent] = useState(false);
+  return (
+    <Card eyebrow={copy.recoveryEyebrow} title={sent ? copy.checkEmail : copy.resetTitle}>
+      {sent ? (
+        <p className="lede" role="status">
+          {copy.resetSent}
+        </p>
+      ) : (
+        <>
+          <p className="lede">{copy.recoveryDescription}</p>
+          <ActionForm
+            label={copy.sendReset}
+            action={async (data) => {
+              await request('/auth/password/forgot', { email: String(data.get('email')).trim() });
+              setSent(true);
+            }}
+          >
+            <EmailField />
+          </ActionForm>
+        </>
+      )}
+      <p className="switch">
+        <a href="/login">{copy.backToSignIn}</a>
+      </p>
+    </Card>
+  );
+}
+
+function Reset() {
+  const token = new URLSearchParams(window.location.search).get('token');
+  const [state, setState] = useState<'ready' | 'done' | 'invalid'>(token ? 'ready' : 'invalid');
+  return (
+    <Card
+      eyebrow={copy.recoveryEyebrow}
+      title={
+        state === 'done'
+          ? copy.passwordUpdated
+          : state === 'invalid'
+            ? copy.invalidLinkTitle
+            : copy.choosePassword
+      }
+    >
+      {state === 'done' ? (
+        <>
+          <p className="lede">{copy.passwordUpdatedDescription}</p>
+          <a className="primary button-link" href="/login">
+            {copy.signIn}
+          </a>
+        </>
+      ) : state === 'invalid' ? (
+        <>
+          <p className="lede">{copy.errors.invalidLink}</p>
+          <a className="primary button-link" href="/forgot">
+            {copy.requestReset}
+          </a>
+        </>
+      ) : (
+        <>
+          <p className="lede">{copy.newPasswordDescription}</p>
+          <ActionForm
+            label={copy.resetPassword}
+            action={async (data) => {
+              try {
+                await request('/auth/password/reset', {
+                  token,
+                  password: String(data.get('password')),
+                });
+                setState('done');
+                window.history.replaceState({}, '', '/reset');
+              } catch (error) {
+                if (error instanceof ApiError && error.status === 400) setState('invalid');
+                else throw error;
+              }
+            }}
+          >
+            <PasswordField isNew label={copy.newPassword} />
+          </ActionForm>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function PrivateHome() {
+  const [account, setAccount] = useState<Account | null>(null);
+  const [error, setError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    request<Account>('/auth/me')
+      .then((value) => {
+        if (!cancelled) setAccount(value);
+      })
+      .catch((failure: unknown) => {
+        if (cancelled) return;
+        if (failure instanceof ApiError && failure.status === 401)
+          window.location.replace('/login');
+        else setError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt]);
+  if (error)
+    return (
+      <Card eyebrow={copy.yourAccount} title={copy.connectionTitle}>
+        <p className="error" role="alert">
+          {copy.errors.generic}
+        </p>
+        <button
+          className="primary"
+          onClick={() => {
+            setError(false);
+            setAttempt(attempt + 1);
+          }}
+        >
+          {copy.retry}
+        </button>
+      </Card>
+    );
+  if (!account)
+    return (
+      <div className="loading" role="status">
+        {copy.loading}
+      </div>
+    );
+  return (
+    <Card eyebrow={copy.yourAccount} title={copy.privateTitle}>
+      <p className="lede">{copy.privateDescription}</p>
+      <p className="account-email">
+        {copy.signedInAs} <strong>{account.email}</strong>
+      </p>
+      <ActionForm
+        label={copy.signOut}
+        secondary
+        action={async () => {
+          await request('/auth/logout', {});
+          window.location.replace('/login');
+        }}
+      />
+    </Card>
+  );
+}
+
+export function App() {
+  const screens: Record<string, ReactNode> = {
+    '/': <PrivateHome />,
+    '/home': <PrivateHome />,
+    '/login': <Login />,
+    '/register': <Register />,
+    '/verify': <Verify />,
+    '/forgot': <Forgot />,
+    '/reset': <Reset />,
+  };
+  return (
+    <main className="page">
+      <header className="brand">
+        <span className="brand-mark" aria-hidden="true">
+          W
+        </span>
+        <span>{copy.brand}</span>
+      </header>
+      {screens[window.location.pathname] ?? (
+        <Card eyebrow={copy.brand} title={copy.notFound}>
+          <a href="/">{copy.returnHome}</a>
+        </Card>
+      )}
+      <footer>{copy.footer}</footer>
+    </main>
+  );
+}

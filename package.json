@@ -1,26 +1,37 @@
 {
   "name": "wodyssey",
   "private": true,
-  "workspaces": ["apps/api", "apps/web"],
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
   "scripts": {
-    "dev": "concurrently -k -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev": "node scripts/dev.mjs",
+    "build": "npm run build --workspaces",
     "dev:db": "docker compose up -d postgres",
-    "e2e:servers": "concurrently -k -n api,web -c blue,green \"npm:e2e:api\" \"npm:dev:web\"",
-    "e2e:api": "cross-env DATABASE_URL=postgres://wodyssey:wodyssey@localhost:5432/wodyssey EMAIL_TRANSPORT=memory TEST_MAILBOX_ENABLED=true WEB_ORIGIN=http://127.0.0.1:5173 npm --workspace @wodyssey/api run start:e2e",
+    "e2e:api": "cross-env EMAIL_TRANSPORT=memory TEST_MAILBOX_ENABLED=true npm --workspace @wodyssey/api run start:e2e",
     "dev:api": "npm --workspace @wodyssey/api run start:dev",
     "dev:web": "npm --workspace @wodyssey/web run dev",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit -p tsconfig.e2e.json",
-    "lint": "eslint \"apps/**/*.{ts,tsx}\" \"e2e/**/*.ts\" *.ts",
-    "test:e2e": "playwright test && npm run test:e2e:expired",
-    "test:e2e:expired": "cross-env TEST_ACCOUNT_TOKEN_LIFETIME_MS=3000 playwright test --config playwright.expiry.config.ts",
+    "format:check": "prettier --check apps e2e scripts package.json tsconfig.e2e.json playwright*.ts eslint.config.mjs README.md",
+    "lint": "eslint apps e2e scripts *.ts eslint.config.mjs",
+    "test:e2e": "node scripts/e2e.mjs",
+    "test:e2e:expired": "node scripts/e2e.mjs --expiry",
     "test:e2e:install": "playwright install chromium"
   },
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@playwright/test": "^1.56.1",
-    "@typescript-eslint/parser": "^8.44.1",
-    "concurrently": "^9.2.1",
     "cross-env": "^10.0.0",
+    "embedded-postgres": "17.11.0-beta.19",
     "eslint": "^9.36.0",
-    "typescript": "^5.9.3"
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.14.0",
+    "prettier": "^3.10.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.2"
   }
 }

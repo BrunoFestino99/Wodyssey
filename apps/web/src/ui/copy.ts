@@ -1,5 +1,15 @@
 export const copy = {
   brand: 'Wodyssey',
+  working: 'Please wait…',
+  verifyTitle: 'Verify your email',
+  verifyEmail: 'Verify email',
+  verifyDescription: 'Confirm this email address to start using your Wodyssey account.',
+  requestReset: 'Request a new reset link',
+  newPasswordDescription: 'Resetting your password signs you out on all devices.',
+  connectionTitle: 'Unable to load your account',
+  retry: 'Try again',
+  notFound: 'Page not found',
+  returnHome: 'Return to your account',
   signIn: 'Sign in',
   createAccount: 'Create account',
   email: 'Email address',
@@ -26,7 +36,8 @@ export const copy = {
   emailVerified: 'Email verified',
   invalidLinkTitle: 'This link can’t be used',
   verifiedDescription: 'Your email is verified. You can now sign in to Wodyssey.',
-  invalidLinkDescription: 'The verification link is invalid or has expired. You can request another one.',
+  invalidLinkDescription:
+    'The verification link is invalid or has expired. You can request another one.',
   yourAccount: 'Your account',
   resendVerification: 'Resend verification link',
   resentVerification: 'If verification is needed, we’ve sent another link.',
@@ -45,6 +56,7 @@ export const copy = {
   signedInAs: 'Signed in as',
   signOut: 'Sign out',
   errors: {
+    validation: 'Check your email address and password, then try again.',
     invalidLink: 'This link is invalid or has expired. Request a new link to continue.',
     credentials: 'Email or password is incorrect, or email verification is required.',
     rateLimit: 'Too many attempts. Wait a little and try again.',

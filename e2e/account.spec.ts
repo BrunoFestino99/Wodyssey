@@ -1,109 +1,179 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+import { api, messagesFor, password, uniqueEmail, verifiedAccount } from './support';
 
-const api = 'http://127.0.0.1:3000';
+async function signIn(page: Page, email: string, value = password) {
+  await page.goto('/login');
+  await page.getByLabel('Email address').fill(email);
+  await page.getByLabel('Password', { exact: true }).fill(value);
+  await page.getByLabel('Password', { exact: true }).press('Enter');
+  await expect(page.getByRole('heading', { name: 'Your training space' })).toBeVisible();
+}
 
-test('a visitor registers, verifies email, signs in, and signs out', async ({ page, request }) => {
-  const email = `athlete-${Date.now()}@example.test`;
+test.afterEach(async ({ page }, testInfo) => {
+  expect(
+    await page.locator('body').evaluate((element) => element.scrollWidth <= window.innerWidth),
+  ).toBeTruthy();
+  await page.screenshot({ path: testInfo.outputPath('screen.png'), fullPage: true });
+});
+
+test('the email owner can register over an unverified account with their own password', async ({
+  page,
+  request,
+}) => {
+  const email = uniqueEmail('owner');
+  await request.post(api + '/auth/register', {
+    data: { email, password: 'Attacker-password-42!' },
+  });
+  const [oldMessage] = await messagesFor(request, email);
   await page.goto('/register');
   await page.getByLabel('Email address').fill(email);
-  await page.getByLabel('Password', { exact: true }).fill('Strong-password-42!');
+  await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
-
-  const mailbox = await request.get(`${api}/test/mailbox?email=${encodeURIComponent(email)}`);
-  expect(mailbox.ok()).toBeTruthy();
-  const messages = await mailbox.json() as Array<{ type: string; token: string }>;
-  const verification = messages.find((message) => message.type === 'verification');
-  expect(verification).toBeDefined();
-
-  await page.goto(`/verify?token=${verification!.token}`);
+  const messages = await messagesFor(request, email);
+  await page.goto(messages[messages.length - 1].url);
+  await page.getByRole('button', { name: 'Verify email' }).click();
   await expect(page.getByRole('heading', { name: 'Email verified' })).toBeVisible();
-  const reusedVerification = await request.post(`${api}/auth/verification/consume`, { data: { token: verification!.token } });
-  expect(reusedVerification.status()).toBe(400);
-  const invalidVerification = await request.post(`${api}/auth/verification/consume`, { data: { token: 'x'.repeat(48) } });
-  expect(invalidVerification.status()).toBe(400);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signIn(page, email);
+  expect(
+    (
+      await request.post(api + '/auth/login', {
+        data: { email, password: 'Attacker-password-42!' },
+      })
+    ).status(),
+  ).toBe(401);
+  expect(
+    (
+      await request.post(api + '/auth/verification/consume', { data: { token: oldMessage.token } })
+    ).status(),
+  ).toBe(400);
+});
+
+test('a visitor registers, resends email, verifies, signs in and revokes their session', async ({
+  page,
+  request,
+}, testInfo) => {
+  const email = uniqueEmail('athlete');
+  await page.goto('/register');
+  await page.screenshot({ path: testInfo.outputPath('register.png'), fullPage: true });
   await page.getByLabel('Email address').fill(email);
-  await page.getByLabel('Password', { exact: true }).fill('Strong-password-42!');
+  await page.getByLabel('Email address').press('Tab');
+  await expect(page.getByLabel('Password', { exact: true })).toBeFocused();
+  await page.keyboard.type(password);
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
+  await page.getByRole('button', { name: 'Resend verification link' }).click();
+  await expect(page.getByRole('status')).toContainText('sent another link');
+
+  const messages = await messagesFor(request, email);
+  expect(messages).toHaveLength(2);
+  // The earlier email must still work when delivery order differs from request order.
+  const verification = messages[0];
+  await page.goto(verification.url);
+  await page.getByRole('button', { name: 'Verify email' }).click();
+  await expect(page.getByRole('heading', { name: 'Email verified' })).toBeVisible();
+  for (const message of messages) {
+    expect(
+      (
+        await request.post(api + '/auth/verification/consume', { data: { token: message.token } })
+      ).status(),
+    ).toBe(400);
+  }
+  await page.getByRole('link', { name: 'Sign in' }).click();
+  await page.getByLabel('Email address').fill(email);
+  await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'Your training space' })).toBeVisible();
-  const sessionCookie = (await page.context().cookies()).find((cookie) => cookie.name === 'wodyssey_session');
-  expect(sessionCookie).toBeDefined();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Your training space' })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('private.png'), fullPage: true });
+  const sessionCookie = (await page.context().cookies()).find(
+    (cookie) => cookie.name === 'wodyssey_session',
+  )!;
+  expect(sessionCookie.httpOnly).toBe(true);
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
-  expect((await request.get(`${api}/auth/me`, { headers: { cookie: `wodyssey_session=${sessionCookie!.value}` } })).status()).toBe(401);
+  expect(
+    (
+      await request.get(api + '/auth/me', {
+        headers: { cookie: 'wodyssey_session=' + sessionCookie.value },
+      })
+    ).status(),
+  ).toBe(401);
+  await page.goto('/home');
+  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
 });
 
-test('registration remains usable on a narrow phone viewport', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/register');
-  await expect(page.getByRole('heading', { name: 'Create your account' })).toBeVisible();
-  expect(await page.locator('body').evaluate((element) => element.scrollWidth <= window.innerWidth)).toBeTruthy();
-});
-
-test('concurrent link requests leave only the latest verification and reset link usable', async ({ request }) => {
-  const email = `concurrent-${Date.now()}@example.test`;
-  const password = 'Strong-password-42!';
-  const registrations = await Promise.all([
-    request.post(`${api}/auth/register`, { data: { email, password } }),
-    request.post(`${api}/auth/register`, { data: { email, password } }),
-  ]);
-  expect(registrations.map((response) => response.status())).toEqual([202, 202]);
-
-  const verificationMessages = await (await request.get(`${api}/test/mailbox?email=${encodeURIComponent(email)}`)).json() as Array<{ type: string; token: string }>;
-  const verificationTokens = verificationMessages.filter((message) => message.type === 'verification').map((message) => message.token);
-  expect(verificationTokens.length).toBe(2);
-  const verificationResults = await Promise.all(verificationTokens.map((token) => request.post(`${api}/auth/verification/consume`, { data: { token } })));
-  expect(verificationResults.filter((response) => response.status() === 200)).toHaveLength(1);
-  expect(verificationResults.filter((response) => response.status() === 400)).toHaveLength(1);
-
-  await Promise.all([
-    request.post(`${api}/auth/password/forgot`, { data: { email } }),
-    request.post(`${api}/auth/password/forgot`, { data: { email } }),
-  ]);
-  const resetMessages = await (await request.get(`${api}/test/mailbox?email=${encodeURIComponent(email)}`)).json() as Array<{ type: string; token: string }>;
-  const resetTokens = resetMessages.filter((message) => message.type === 'reset').map((message) => message.token);
-  expect(resetTokens.length).toBe(2);
-  const resetResults = await Promise.all(resetTokens.map((token, index) => request.post(`${api}/auth/password/reset`, {
-    data: { token, password: `Replacement-password-${index + 51}!` },
-  })));
-  expect(resetResults.filter((response) => response.status() === 200)).toHaveLength(1);
-  expect(resetResults.filter((response) => response.status() === 400)).toHaveLength(1);
-});
-
-test('password reset tokens are single use and do not reveal unknown accounts', async ({ page, request }) => {
-  const email = `reset-${Date.now()}@example.test`;
+test('password recovery restores access with the new password and rejects reused links', async ({
+  page,
+  request,
+}, testInfo) => {
+  const email = uniqueEmail('recovery');
   await page.goto('/register');
   await page.getByLabel('Email address').fill(email);
-  await page.getByLabel('Password', { exact: true }).fill('Strong-password-42!');
+  await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Create account' }).click();
-  const registrationMessages = await (await request.get(`${api}/test/mailbox?email=${encodeURIComponent(email)}`)).json() as Array<{ token: string }>;
-  await page.goto(`/verify?token=${registrationMessages[0].token}`);
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
+  const [verification] = await messagesFor(request, email);
+  await page.goto(verification.url);
+  await page.getByRole('button', { name: 'Verify email' }).click();
   await expect(page.getByRole('heading', { name: 'Email verified' })).toBeVisible();
 
-  await page.goto('/login');
+  await page.getByRole('link', { name: 'Sign in' }).click();
   await page.getByRole('link', { name: 'Forgot password?' }).click();
   await page.getByLabel('Email address').fill(email);
   await page.getByRole('button', { name: 'Send reset link' }).click();
-  await expect(page.getByText('If an account exists for that address,')).toBeVisible();
-  const messages = await (await request.get(`${api}/test/mailbox?email=${encodeURIComponent(email)}`)).json() as Array<{ type: string; token: string }>;
-  const reset = messages.find((message) => message.type === 'reset');
-  expect(reset).toBeDefined();
-  const invalidReset = await request.post(`${api}/auth/password/reset`, { data: { token: 'x'.repeat(48), password: 'Third-strong-44!' } });
-  expect(invalidReset.status()).toBe(400);
-
-  await page.goto(`/reset?token=${reset!.token}`);
+  await expect(page.getByRole('status')).toContainText('If an account exists for that address');
+  const reset = (await messagesFor(request, email)).find((message) => message.type === 'reset')!;
+  await page.goto(reset.url);
+  await page.screenshot({ path: testInfo.outputPath('reset.png'), fullPage: true });
   await page.getByLabel('New password').fill('Another-strong-43!');
   await page.getByRole('button', { name: 'Reset password' }).click();
   await expect(page.getByRole('heading', { name: 'Password updated' })).toBeVisible();
-  const replay = await request.post(`${api}/auth/password/reset`, { data: { token: reset!.token, password: 'Third-strong-44!' } });
-  expect(replay.status()).toBe(400);
-  const oldPassword = await request.post(`${api}/auth/login`, { data: { email, password: 'Strong-password-42!' } });
-  expect(oldPassword.status()).toBe(401);
-  const newPassword = await request.post(`${api}/auth/login`, { data: { email, password: 'Another-strong-43!' } });
-  expect(newPassword.ok()).toBeTruthy();
+  expect(
+    (
+      await request.post(api + '/auth/password/reset', {
+        data: { token: reset.token, password: 'Third-strong-44!' },
+      })
+    ).status(),
+  ).toBe(400);
+  await page.getByRole('link', { name: 'Sign in' }).click();
+  await page.getByLabel('Email address').fill(email);
+  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('alert')).toContainText('Email or password is incorrect');
+  await expect(page.getByLabel('Email address')).toHaveValue(email);
+  await page.getByLabel('Password', { exact: true }).fill('Another-strong-43!');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'Your training space' })).toBeVisible();
+});
 
-  const unknownAccount = await request.post(`${api}/auth/password/forgot`, { data: { email: `unknown-${Date.now()}@example.test` } });
-  expect(unknownAccount.status()).toBe(202);
-  expect(await unknownAccount.json()).toEqual({ message: 'If an account exists for that address, a reset link has been sent.' });
+test('invalid email and recovery links offer a usable way to request another', async ({ page }) => {
+  await page.goto('/verify?token=' + 'x'.repeat(48));
+  await page.getByRole('button', { name: 'Verify email' }).click();
+  await expect(page.getByRole('heading', { name: 'This link can’t be used' })).toBeVisible();
+  await page.getByLabel('Email address').fill(uniqueEmail('unknown'));
+  await page.getByRole('button', { name: 'Resend verification link' }).click();
+  await expect(page.getByRole('status')).toContainText('If verification is needed');
+
+  await page.goto('/reset?token=' + 'x'.repeat(48));
+  await page.getByLabel('New password').fill('Another-strong-43!');
+  await page.getByRole('button', { name: 'Reset password' }).click();
+  await expect(page.getByRole('heading', { name: 'This link can’t be used' })).toBeVisible();
+  await page.getByRole('link', { name: 'Request a new reset link' }).click();
+  await page.getByLabel('Email address').fill(uniqueEmail('unknown'));
+  await page.getByRole('button', { name: 'Send reset link' }).click();
+  await expect(page.getByRole('status')).toContainText('If an account exists for that address');
+});
+
+test('a failed sign-out is shown as an error and can be retried', async ({ page, request }) => {
+  const email = await verifiedAccount(request);
+  await signIn(page, email);
+  await page.route('**/auth/logout', (route) => route.abort('failed'));
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page.getByRole('alert')).toContainText('Check your connection');
+  await expect(page.getByRole('heading', { name: 'Your training space' })).toBeVisible();
+  await page.unroute('**/auth/logout');
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
 });

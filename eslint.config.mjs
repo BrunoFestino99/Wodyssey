@@ -1,15 +1,19 @@
-import tsParser from '@typescript-eslint/parser';
+import js from '@eslint/js';
+import tseslint from 'typescript-eslint';
+import hooks from 'eslint-plugin-react-hooks';
+import globals from 'globals';
 
-export default [
-  { ignores: ['**/dist/**', '**/node_modules/**'] },
+export default tseslint.config(
+  { ignores: ['**/dist/**', '**/node_modules/**', '.local/**', 'test-results/**'] },
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
+  { languageOptions: { globals: globals.node } },
   {
-    files: ['apps/**/*.ts', 'apps/**/*.tsx', 'e2e/**/*.ts', '*.ts'],
-    languageOptions: { parser: tsParser, parserOptions: { ecmaVersion: 'latest', sourceType: 'module', ecmaFeatures: { jsx: true } } },
+    files: ['apps/web/**/*.tsx'],
+    plugins: { 'react-hooks': hooks },
     rules: {
-      'no-debugger': 'error',
-      'no-duplicate-imports': 'error',
-      'no-unreachable': 'error',
-      'no-unused-vars': 'off',
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'error',
     },
   },
-];
+);
