@@ -1,13 +1,13 @@
-import { mkdtemp, mkdir } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
 import EmbeddedPostgres from 'embedded-postgres';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-await mkdir(path.join(root, '.local'), { recursive: true });
-const databaseDir = await mkdtemp(path.join(root, '.local', 'e2e-'));
+const databaseDir = await mkdtemp(path.join(tmpdir(), 'wodyssey-e2e-'));
 
 async function unusedPort() {
   const server = createServer();
