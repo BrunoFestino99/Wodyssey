@@ -82,7 +82,7 @@ export class AuthController {
   async me(@Req() request: Request): Promise<{ email: string }> {
     const account = await this.auth.currentAccount(request.cookies?.wodyssey_session);
     if (!account) throw new UnauthorizedException();
-    return account;
+    return { email: account.email };
   }
 
   @Post('password/forgot')

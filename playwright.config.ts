@@ -2,6 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 const apiOrigin = process.env.E2E_API_ORIGIN ?? 'http://127.0.0.1:3000';
 const webOrigin = process.env.E2E_WEB_ORIGIN ?? 'http://127.0.0.1:5173';
+const browserJourneys = ['account.spec.ts', 'organizations.spec.ts'];
 
 export default defineConfig({
   testDir: './e2e',
@@ -10,11 +11,11 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop',
-      testMatch: 'account.spec.ts',
+      testMatch: browserJourneys,
       use: { viewport: { width: 1280, height: 800 } },
     },
-    { name: 'mobile', testMatch: 'account.spec.ts', use: { ...devices['Pixel 5'] } },
-    { name: 'api', testMatch: 'account-api.spec.ts' },
+    { name: 'mobile', testMatch: browserJourneys, use: { ...devices['Pixel 5'] } },
+    { name: 'api', testMatch: /-api\.spec\.ts$/ },
   ],
   use: {
     baseURL: webOrigin,

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { expect, type APIRequestContext } from '@playwright/test';
+import { expect, type APIRequestContext, type Page } from '@playwright/test';
 
 export const api = process.env.E2E_API_ORIGIN ?? 'http://127.0.0.1:3000';
 export const password = 'Strong-password-42!';
@@ -29,4 +29,30 @@ export async function verifiedAccount(request: APIRequestContext): Promise<strin
     ).status(),
   ).toBe(200);
   return email;
+}
+
+export async function signedInClient(
+  playwright: { request: { newContext(): Promise<APIRequestContext> } },
+  setup: APIRequestContext,
+): Promise<APIRequestContext> {
+  const email = await verifiedAccount(setup);
+  const client = await playwright.request.newContext();
+  expect((await client.post(`${api}/auth/login`, { data: { email, password } })).status()).toBe(
+    200,
+  );
+  return client;
+}
+
+/** Signs in through the web form and waits for the signed-in landing screen. */
+export async function signIn(
+  page: Page,
+  email: string,
+  value = password,
+  landing = 'Your training space',
+) {
+  await page.goto('/login');
+  await page.getByLabel('Email address').fill(email);
+  await page.getByLabel('Password', { exact: true }).fill(value);
+  await page.getByLabel('Password', { exact: true }).press('Enter');
+  await expect(page.getByRole('heading', { name: landing })).toBeVisible();
 }

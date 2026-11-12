@@ -10,9 +10,10 @@ async function bootstrap(): Promise<void> {
     if (
       process.env.EMAIL_TRANSPORT === 'memory' ||
       process.env.TEST_MAILBOX_ENABLED === 'true' ||
-      process.env.TEST_ACCOUNT_TOKEN_LIFETIME_MS
+      process.env.TEST_ACCOUNT_TOKEN_LIFETIME_MS ||
+      process.env.TEST_RATE_LIMIT_DISABLED
     ) {
-      throw new Error('Test email and token settings cannot be enabled in production.');
+      throw new Error('Test email, token and rate limit settings cannot be enabled in production.');
     }
     if (!process.env.SMTP_URL || !process.env.EMAIL_FROM)
       throw new Error('SMTP_URL and EMAIL_FROM are required in production.');

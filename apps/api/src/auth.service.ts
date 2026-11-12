@@ -5,6 +5,7 @@ import { database, query } from './database';
 import { AccountEmailSender } from './email';
 import type { PoolClient } from 'pg';
 
+export type SignedInAccount = { id: string; email: string };
 type Account = { id: string; email: string; password_hash: string; email_verified_at: Date | null };
 const DEFAULT_TOKEN_LIFETIME_MS = 30 * 60 * 1000;
 const SESSION_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000;
@@ -118,10 +119,10 @@ export class AuthService {
       await query('DELETE FROM account_sessions WHERE token_hash = $1', [hashToken(token)]);
   }
 
-  async currentAccount(token: unknown): Promise<{ email: string } | null> {
+  async currentAccount(token: unknown): Promise<SignedInAccount | null> {
     if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
-    const result = await query<{ email: string }>(
-      'SELECT a.email FROM account_sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token_hash = $1 AND s.expires_at > now() AND a.email_verified_at IS NOT NULL',
+    const result = await query<SignedInAccount>(
+      'SELECT a.id, a.email FROM account_sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token_hash = $1 AND s.expires_at > now() AND a.email_verified_at IS NOT NULL',
       [hashToken(token)],
     );
     return result.rows[0] ?? null;

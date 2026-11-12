@@ -9,7 +9,7 @@
     "dev": "node scripts/dev.mjs",
     "build": "npm run build --workspaces",
     "dev:db": "docker compose up -d postgres",
-    "e2e:api": "cross-env EMAIL_TRANSPORT=memory TEST_MAILBOX_ENABLED=true npm --workspace @wodyssey/api run start:e2e",
+    "e2e:api": "cross-env EMAIL_TRANSPORT=memory TEST_MAILBOX_ENABLED=true TEST_RATE_LIMIT_DISABLED=true npm --workspace @wodyssey/api run start:e2e",
     "dev:api": "npm --workspace @wodyssey/api run start:dev",
     "dev:web": "npm --workspace @wodyssey/web run dev",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit -p tsconfig.e2e.json",

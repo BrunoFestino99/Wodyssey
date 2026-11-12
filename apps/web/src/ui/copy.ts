@@ -15,7 +15,6 @@ export const copy = {
   email: 'Email address',
   password: 'Password',
   privateTitle: 'Your training space',
-  privateDescription: 'Your account is ready. Your training and organizations will live here.',
   footer: 'Training, planned together.',
   loading: 'Loading your account…',
   registrationEyebrow: 'Start training with Wodyssey',
@@ -55,6 +54,35 @@ export const copy = {
   passwordUpdatedDescription: 'Your password has been changed. Sign in with your new password.',
   signedInAs: 'Signed in as',
   signOut: 'Sign out',
+  organizations: {
+    eyebrow: 'Organization',
+    nameLabel: 'Organization name',
+    nameInvalid: 'Enter an organization name of up to 80 characters.',
+    create: 'Create organization',
+    noneDescription:
+      'You’re not part of an organization yet. Create one for your box or coaching business to start planning.',
+    newEyebrow: 'New organization',
+    newTitle: 'Create an organization',
+    newDescription:
+      'Each organization keeps its own members and programs. You’ll be its administrator.',
+    newLink: 'New organization',
+    cancel: 'Cancel',
+    current: 'Current organization:',
+    switchLabel: 'Switch organization, current: {name}',
+    yourOrganizations: 'Your organizations',
+    accountLabel: 'Account: {email}',
+    yourRoles: 'Your roles',
+    roles: { administrator: 'Administrator' },
+    separationDescription:
+      'Members and programs in this organization are kept separate from your other organizations.',
+    settingsTitle: 'Organization settings',
+    settingsDescription: 'The name members see for this organization.',
+    save: 'Save changes',
+    saved: 'Changes saved.',
+    unavailableTitle: 'Organization not available',
+    unavailableDescription:
+      'This organization doesn’t exist or your account doesn’t have access to it.',
+  },
   errors: {
     validation: 'Check your email address and password, then try again.',
     invalidLink: 'This link is invalid or has expired. Request a new link to continue.',

@@ -1,86 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ApiError, request } from './api';
+import { ActionForm, Card, CardPage } from './components';
 import { copy } from './copy';
-
-type Account = { email: string };
-
-function errorMessage(error: unknown): string {
-  if (error instanceof ApiError) {
-    if (error.status === 400) return copy.errors.validation;
-    if (error.status === 401) return copy.errors.credentials;
-    if (error.status === 429) return copy.errors.rateLimit;
-  }
-  return copy.errors.generic;
-}
-
-function Card({
-  eyebrow,
-  title,
-  children,
-}: {
-  eyebrow: string;
-  title: string;
-  children: ReactNode;
-}) {
-  const heading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => {
-    heading.current?.focus({ preventScroll: true });
-  }, [title]);
-  return (
-    <section className="card">
-      <p className="eyebrow">{eyebrow}</p>
-      <h1 ref={heading} tabIndex={-1}>
-        {title}
-      </h1>
-      {children}
-    </section>
-  );
-}
-
-function ActionForm({
-  action,
-  label,
-  children,
-  secondary = false,
-}: {
-  action: (data: FormData) => Promise<void>;
-  label: string;
-  children?: ReactNode;
-  secondary?: boolean;
-}) {
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState('');
-  const submitting = useRef(false);
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (submitting.current) return;
-    const data = new FormData(event.currentTarget);
-    submitting.current = true;
-    setPending(true);
-    setError('');
-    try {
-      await action(data);
-    } catch (failure) {
-      setError(errorMessage(failure));
-    } finally {
-      submitting.current = false;
-      setPending(false);
-    }
-  }
-  return (
-    <form onSubmit={submit} aria-busy={pending}>
-      <fieldset disabled={pending}>{children}</fieldset>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-      <button className={secondary ? 'secondary' : 'primary'} type="submit" disabled={pending}>
-        {pending ? copy.working : label}
-      </button>
-    </form>
-  );
-}
+import { NewOrganization, OrganizationWorkspace, PrivateHome } from './organizations';
 
 function EmailField({ defaultValue = '' }: { defaultValue?: string }) {
   return (
@@ -351,91 +273,27 @@ function Reset() {
   );
 }
 
-function PrivateHome() {
-  const [account, setAccount] = useState<Account | null>(null);
-  const [error, setError] = useState(false);
-  const [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    let cancelled = false;
-    request<Account>('/auth/me')
-      .then((value) => {
-        if (!cancelled) setAccount(value);
-      })
-      .catch((failure: unknown) => {
-        if (cancelled) return;
-        if (failure instanceof ApiError && failure.status === 401)
-          window.location.replace('/login');
-        else setError(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [attempt]);
-  if (error)
-    return (
-      <Card eyebrow={copy.yourAccount} title={copy.connectionTitle}>
-        <p className="error" role="alert">
-          {copy.errors.generic}
-        </p>
-        <button
-          className="primary"
-          onClick={() => {
-            setError(false);
-            setAttempt(attempt + 1);
-          }}
-        >
-          {copy.retry}
-        </button>
-      </Card>
-    );
-  if (!account)
-    return (
-      <div className="loading" role="status">
-        {copy.loading}
-      </div>
-    );
-  return (
-    <Card eyebrow={copy.yourAccount} title={copy.privateTitle}>
-      <p className="lede">{copy.privateDescription}</p>
-      <p className="account-email">
-        {copy.signedInAs} <strong>{account.email}</strong>
-      </p>
-      <ActionForm
-        label={copy.signOut}
-        secondary
-        action={async () => {
-          await request('/auth/logout', {});
-          window.location.replace('/login');
-        }}
-      />
-    </Card>
-  );
-}
+const ORGANIZATION_PATH = /^\/organizations\/([^/]+)\/?$/;
 
 export function App() {
-  const screens: Record<string, ReactNode> = {
-    '/': <PrivateHome />,
-    '/home': <PrivateHome />,
+  const path = window.location.pathname;
+  const accountScreens: Record<string, ReactNode> = {
     '/login': <Login />,
     '/register': <Register />,
     '/verify': <Verify />,
     '/forgot': <Forgot />,
     '/reset': <Reset />,
   };
+  if (accountScreens[path]) return <CardPage>{accountScreens[path]}</CardPage>;
+  if (path === '/' || path === '/home') return <PrivateHome />;
+  if (path === '/organizations/new') return <NewOrganization />;
+  const organization = ORGANIZATION_PATH.exec(path);
+  if (organization) return <OrganizationWorkspace id={decodeURIComponent(organization[1])} />;
   return (
-    <main className="page">
-      <header className="brand">
-        <span className="brand-mark" aria-hidden="true">
-          W
-        </span>
-        <span>{copy.brand}</span>
-      </header>
-      {screens[window.location.pathname] ?? (
-        <Card eyebrow={copy.brand} title={copy.notFound}>
-          <a href="/">{copy.returnHome}</a>
-        </Card>
-      )}
-      <footer>{copy.footer}</footer>
-    </main>
+    <CardPage>
+      <Card eyebrow={copy.brand} title={copy.notFound}>
+        <a href="/">{copy.returnHome}</a>
+      </Card>
+    </CardPage>
   );
 }

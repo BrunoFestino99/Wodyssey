@@ -1,13 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
-import { api, messagesFor, password, uniqueEmail, verifiedAccount } from './support';
-
-async function signIn(page: Page, email: string, value = password) {
-  await page.goto('/login');
-  await page.getByLabel('Email address').fill(email);
-  await page.getByLabel('Password', { exact: true }).fill(value);
-  await page.getByLabel('Password', { exact: true }).press('Enter');
-  await expect(page.getByRole('heading', { name: 'Your training space' })).toBeVisible();
-}
+import { expect, test } from '@playwright/test';
+import { api, messagesFor, password, signIn, uniqueEmail, verifiedAccount } from './support';
 
 test.afterEach(async ({ page }, testInfo) => {
   expect(
