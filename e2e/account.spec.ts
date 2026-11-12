@@ -41,6 +41,36 @@ test('registration remains usable on a narrow phone viewport', async ({ page }) 
   expect(await page.locator('body').evaluate((element) => element.scrollWidth <= window.innerWidth)).toBeTruthy();
 });
 
+test('concurrent link requests leave only the latest verification and reset link usable', async ({ request }) => {
+  const email = `concurrent-${Date.now()}@example.test`;
+  const password = 'Strong-password-42!';
+  const registrations = await Promise.all([
+    request.post(`${api}/auth/register`, { data: { email, password } }),
+    request.post(`${api}/auth/register`, { data: { email, password } }),
+  ]);
+  expect(registrations.map((response) => response.status())).toEqual([202, 202]);
+
+  const verificationMessages = await (await request.get(`${api}/test/mailbox?email=${encodeURIComponent(email)}`)).json() as Array<{ type: string; token: string }>;
+  const verificationTokens = verificationMessages.filter((message) => message.type === 'verification').map((message) => message.token);
+  expect(verificationTokens.length).toBe(2);
+  const verificationResults = await Promise.all(verificationTokens.map((token) => request.post(`${api}/auth/verification/consume`, { data: { token } })));
+  expect(verificationResults.filter((response) => response.status() === 200)).toHaveLength(1);
+  expect(verificationResults.filter((response) => response.status() === 400)).toHaveLength(1);
+
+  await Promise.all([
+    request.post(`${api}/auth/password/forgot`, { data: { email } }),
+    request.post(`${api}/auth/password/forgot`, { data: { email } }),
+  ]);
+  const resetMessages = await (await request.get(`${api}/test/mailbox?email=${encodeURIComponent(email)}`)).json() as Array<{ type: string; token: string }>;
+  const resetTokens = resetMessages.filter((message) => message.type === 'reset').map((message) => message.token);
+  expect(resetTokens.length).toBe(2);
+  const resetResults = await Promise.all(resetTokens.map((token, index) => request.post(`${api}/auth/password/reset`, {
+    data: { token, password: `Replacement-password-${index + 51}!` },
+  })));
+  expect(resetResults.filter((response) => response.status() === 200)).toHaveLength(1);
+  expect(resetResults.filter((response) => response.status() === 400)).toHaveLength(1);
+});
+
 test('password reset tokens are single use and do not reveal unknown accounts', async ({ page, request }) => {
   const email = `reset-${Date.now()}@example.test`;
   await page.goto('/register');
@@ -59,6 +89,8 @@ test('password reset tokens are single use and do not reveal unknown accounts', 
   const messages = await (await request.get(`${api}/test/mailbox?email=${encodeURIComponent(email)}`)).json() as Array<{ type: string; token: string }>;
   const reset = messages.find((message) => message.type === 'reset');
   expect(reset).toBeDefined();
+  const invalidReset = await request.post(`${api}/auth/password/reset`, { data: { token: 'x'.repeat(48), password: 'Third-strong-44!' } });
+  expect(invalidReset.status()).toBe(400);
 
   await page.goto(`/reset?token=${reset!.token}`);
   await page.getByLabel('New password').fill('Another-strong-43!');

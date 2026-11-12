@@ -96,8 +96,19 @@ export class AuthService {
 
   private async issueToken(accountId: string, email: string, purpose: 'verification' | 'reset'): Promise<void> {
     const token = randomBytes(32).toString('base64url');
-    await query('UPDATE account_tokens SET consumed_at = now() WHERE account_id = $1 AND purpose = $2 AND consumed_at IS NULL', [accountId, purpose]);
-    await query('INSERT INTO account_tokens(account_id, token_hash, purpose, expires_at) VALUES ($1, $2, $3, $4)', [accountId, hashToken(token), purpose, new Date(Date.now() + tokenLifetimeMs())]);
+    const client = await database.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT id FROM accounts WHERE id = $1 FOR UPDATE', [accountId]);
+      await client.query('UPDATE account_tokens SET consumed_at = now() WHERE account_id = $1 AND purpose = $2 AND consumed_at IS NULL', [accountId, purpose]);
+      await client.query('INSERT INTO account_tokens(account_id, token_hash, purpose, expires_at) VALUES ($1, $2, $3, $4)', [accountId, hashToken(token), purpose, new Date(Date.now() + tokenLifetimeMs())]);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
     await this.emailSender.send(purpose, email, token);
   }
 
