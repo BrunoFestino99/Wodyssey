@@ -6,10 +6,18 @@ import { AccountEmailSender } from './email';
 import type { PoolClient } from 'pg';
 
 type Account = { id: string; email: string; password_hash: string; email_verified_at: Date | null };
-const TOKEN_LIFETIME_MS = 30 * 60 * 1000;
+const DEFAULT_TOKEN_LIFETIME_MS = 30 * 60 * 1000;
 const SESSION_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000;
 const normalizedEmail = (email: string) => email.trim().toLowerCase();
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
+
+function tokenLifetimeMs(): number {
+  if (process.env.EMAIL_TRANSPORT === 'memory' && process.env.TEST_MAILBOX_ENABLED === 'true') {
+    const testLifetime = Number(process.env.TEST_ACCOUNT_TOKEN_LIFETIME_MS);
+    if (Number.isSafeInteger(testLifetime) && testLifetime >= 100 && testLifetime <= 60_000) return testLifetime;
+  }
+  return DEFAULT_TOKEN_LIFETIME_MS;
+}
 
 @Injectable()
 export class AuthService {
@@ -89,7 +97,7 @@ export class AuthService {
   private async issueToken(accountId: string, email: string, purpose: 'verification' | 'reset'): Promise<void> {
     const token = randomBytes(32).toString('base64url');
     await query('UPDATE account_tokens SET consumed_at = now() WHERE account_id = $1 AND purpose = $2 AND consumed_at IS NULL', [accountId, purpose]);
-    await query('INSERT INTO account_tokens(account_id, token_hash, purpose, expires_at) VALUES ($1, $2, $3, $4)', [accountId, hashToken(token), purpose, new Date(Date.now() + TOKEN_LIFETIME_MS)]);
+    await query('INSERT INTO account_tokens(account_id, token_hash, purpose, expires_at) VALUES ($1, $2, $3, $4)', [accountId, hashToken(token), purpose, new Date(Date.now() + tokenLifetimeMs())]);
     await this.emailSender.send(purpose, email, token);
   }
 

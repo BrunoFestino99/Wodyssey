@@ -11,7 +11,8 @@
     "dev:web": "npm --workspace @wodyssey/web run dev",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit -p tsconfig.e2e.json",
     "lint": "eslint \"apps/**/*.{ts,tsx}\" \"e2e/**/*.ts\" *.ts",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test && npm run test:e2e:expired",
+    "test:e2e:expired": "cross-env TEST_ACCOUNT_TOKEN_LIFETIME_MS=3000 playwright test --config playwright.expiry.config.ts",
     "test:e2e:install": "playwright install chromium"
   },
   "devDependencies": {

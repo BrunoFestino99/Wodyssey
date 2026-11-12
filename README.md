@@ -24,6 +24,6 @@ npm run dev:db
 npm run test:e2e
 ```
 
-Browser tests run against the real Vite app, NestJS API, and PostgreSQL database. The E2E API process explicitly enables the in-memory email transport and its test-only mailbox endpoint; neither is available unless both `EMAIL_TRANSPORT=memory` and `TEST_MAILBOX_ENABLED=true` are set. Do not enable these options in a deployed environment.
+Browser tests run against the real Vite app, NestJS API, and PostgreSQL database. A separate public-API E2E run uses a short token lifetime to verify expired-link behavior. The E2E API process explicitly enables the in-memory email transport and its test-only mailbox endpoint; neither is available unless both `EMAIL_TRANSPORT=memory` and `TEST_MAILBOX_ENABLED=true` are set. The short token lifetime is ignored unless both test flags are active. Do not enable these options in a deployed environment.
 
 The public account endpoints are `POST /auth/register`, `POST /auth/verification/consume`, `POST /auth/verification/resend`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/password/forgot`, and `POST /auth/password/reset`. Authenticated sessions use an HttpOnly, SameSite=Lax cookie backed by a revocable PostgreSQL session. Verification and reset tokens are single-use, expire after 30 minutes, and are stored as hashes.
