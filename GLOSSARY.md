@@ -52,6 +52,10 @@ _Evitar_: rutina, planificación como términos alternativos de programa en la d
 Unidad de entrenamiento que forma parte de un programa y describe lo que el alumno debe realizar en una ocasión.
 _Evitar_: programa como sinónimo de sesión.
 
+**Sesión de acceso**:
+Periodo durante el cual una cuenta autenticada mantiene el acceso a Wodyssey.
+_Evitar_: sesión de entrenamiento como sinónimo de sesión de acceso.
+
 **Asignación**:
 Vínculo por el que un alumno recibe un programa de entrenamiento.
 _Evitar_: programa como sinónimo de su asignación a un alumno.
