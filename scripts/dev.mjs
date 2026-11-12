@@ -55,7 +55,8 @@ async function stop(child) {
 
 try {
   if (!env.DATABASE_URL) {
-    const databaseDir = path.join(root, '.local', 'development-postgres');
+    const databaseDir =
+      process.env.LOCAL_POSTGRES_DIR ?? path.join(root, '.local', 'development-postgres');
     await mkdir(databaseDir, { recursive: true });
     const port = Number(process.env.LOCAL_POSTGRES_PORT ?? 55432);
     postgres = new EmbeddedPostgres({
