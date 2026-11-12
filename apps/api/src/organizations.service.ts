@@ -1,10 +1,8 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { query, withTransaction } from './database';
+import { assertIdentifier, type OrganizationRole } from './organization-access';
 
-export type OrganizationRole = 'administrator';
 export type Organization = { id: string; name: string; roles: OrganizationRole[] };
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Only organizations the account belongs to are ever selected.
 const MEMBER_ORGANIZATIONS = `
@@ -46,7 +44,7 @@ export class OrganizationsService {
 
   /** Non-members get the same answer as for an organization that does not exist. */
   async get(accountId: string, organizationId: string): Promise<Organization> {
-    if (!UUID.test(organizationId)) throw new NotFoundException();
+    assertIdentifier(organizationId);
     const { rows } = await query<Organization>(
       `${MEMBER_ORGANIZATIONS} WHERE o.id = $2 GROUP BY o.id`,
       [accountId, organizationId],

@@ -6,6 +6,10 @@ import { AuthService } from './auth.service';
 import { AccountEmailSender } from './email';
 import { HealthController } from './health.controller';
 import { database } from './database';
+import { InvitationsController, OrganizationInvitationsController } from './invitations.controller';
+import { InvitationsService } from './invitations.service';
+import { MembersController } from './members.controller';
+import { MembersService } from './members.service';
 import { OrganizationsController } from './organizations.controller';
 import { OrganizationsService } from './organizations.service';
 import { SessionGuard } from './session.guard';
@@ -18,11 +22,20 @@ import { SessionGuard } from './session.guard';
       skipIf: () => process.env.TEST_RATE_LIMIT_DISABLED === 'true',
     }),
   ],
-  controllers: [AuthController, HealthController, OrganizationsController],
+  controllers: [
+    AuthController,
+    HealthController,
+    OrganizationsController,
+    MembersController,
+    OrganizationInvitationsController,
+    InvitationsController,
+  ],
   providers: [
     AuthService,
     AccountEmailSender,
     OrganizationsService,
+    MembersService,
+    InvitationsService,
     SessionGuard,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],

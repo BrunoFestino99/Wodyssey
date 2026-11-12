@@ -18,6 +18,8 @@ import {
   useSignedInLoad,
 } from './components';
 import { copy } from './copy';
+import { InvitationsSection } from './invitations';
+import { MembersSection, RoleChips } from './members';
 
 const LAST_ORGANIZATION_KEY = 'wodyssey:last-organization';
 
@@ -337,6 +339,7 @@ function Workspace({
   const heading = useFocusOnChange<HTMLHeadingElement>(loaded.id);
   useEffect(() => rememberOrganization(loaded.id), [loaded.id]);
   const administrator = organization.roles.includes('administrator');
+  const coach = organization.roles.includes('coach');
   return (
     <div className="shell">
       <header className="topbar">
@@ -351,14 +354,24 @@ function Workspace({
         <h1 ref={heading} tabIndex={-1}>
           {organization.name}
         </h1>
-        <ul className="roles" aria-label={copy.organizations.yourRoles}>
-          {organization.roles.map((role) => (
-            <li key={role} className="role-chip">
-              {copy.organizations.roles[role]}
-            </li>
-          ))}
-        </ul>
+        <RoleChips roles={organization.roles} label={copy.organizations.yourRoles} />
         <p className="lede">{copy.organizations.separationDescription}</p>
+        {(administrator || coach) && (
+          <InvitationsSection organizationId={organization.id} administrator={administrator} />
+        )}
+        {administrator && (
+          <MembersSection
+            organizationId={organization.id}
+            accountEmail={account.email}
+            onOwnRolesChanged={(roles) => {
+              const changed = { ...organization, roles };
+              setOrganization(changed);
+              setOrganizations((list) =>
+                list.map((item) => (item.id === changed.id ? changed : item)),
+              );
+            }}
+          />
+        )}
         {administrator && (
           <section className="panel" aria-labelledby="organization-settings">
             <h2 id="organization-settings">{copy.organizations.settingsTitle}</h2>

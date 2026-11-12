@@ -12,6 +12,7 @@ async function bootstrap(): Promise<void> {
       process.env.EMAIL_TRANSPORT === 'memory' ||
       process.env.TEST_MAILBOX_ENABLED === 'true' ||
       process.env.TEST_ACCOUNT_TOKEN_LIFETIME_MS ||
+      process.env.TEST_INVITATION_LIFETIME_MS ||
       process.env.TEST_RATE_LIMIT_DISABLED
     ) {
       throw new Error('Test email, token and rate limit settings cannot be enabled in production.');

@@ -9,7 +9,7 @@ export class ApiError extends Error {
 export async function request<T = void>(
   path: string,
   body?: unknown,
-  method: 'GET' | 'POST' | 'PATCH' = body === undefined ? 'GET' : 'POST',
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE' = body === undefined ? 'GET' : 'POST',
 ): Promise<T> {
   const response = await fetch(`${origin}${path}`, {
     method,
@@ -30,6 +30,27 @@ export function redirectIfSignedOut(error: unknown): boolean {
 }
 
 export type Account = { email: string };
-export type OrganizationRole = 'administrator';
+export type OrganizationRole = 'administrator' | 'athlete' | 'coach';
+/** Roles granted by invitation or member management; administrators are not invited. */
+export type MemberRole = Exclude<OrganizationRole, 'administrator'>;
+export const MEMBER_ROLES: readonly MemberRole[] = ['coach', 'athlete'];
 export const ORGANIZATION_NAME_MAX_LENGTH = 80;
 export type Organization = { id: string; name: string; roles: OrganizationRole[] };
+export type Member = { accountId: string; email: string; roles: OrganizationRole[] };
+export type Invitation = {
+  id: string;
+  email: string;
+  roles: MemberRole[];
+  invitedBy: string;
+  expiresAt: string;
+};
+export type SentInvitation = { invitation: Invitation; url: string };
+export type InvitationPreview =
+  | {
+      status: 'pending';
+      organization: { name: string };
+      email: string;
+      roles: MemberRole[];
+      expiresAt: string;
+    }
+  | { status: 'joined'; organization: { id: string; name: string } };

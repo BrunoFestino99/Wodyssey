@@ -5,7 +5,7 @@ const apiOrigin = process.env.E2E_API_ORIGIN ?? 'http://127.0.0.1:3000';
 export default defineConfig({
   testDir: './e2e',
   outputDir: 'test-results/expiry',
-  testMatch: 'account-expiry.spec.ts',
+  testMatch: ['account-expiry.spec.ts', 'invitations-expiry.spec.ts'],
   use: { headless: true },
   webServer: {
     command: 'npm run e2e:api',
