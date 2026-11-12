@@ -2,7 +2,12 @@ import { useState, type ReactNode } from 'react';
 import { ApiError, request } from './api';
 import { ActionForm, Card, CardPage } from './components';
 import { copy } from './copy';
+import { AcceptInvitation } from './accept-invitation';
 import { NewOrganization, OrganizationWorkspace, PrivateHome } from './organizations';
+import { pathAfterSignIn } from './pending-invitation';
+
+/** An email address suggested by the link that opened the screen, such as an invitation. */
+const suggestedEmail = () => new URLSearchParams(window.location.search).get('email') ?? '';
 
 function EmailField({ defaultValue = '' }: { defaultValue?: string }) {
   return (
@@ -105,7 +110,7 @@ function Register() {
           setRegisteredEmail(values.email);
         }}
       >
-        <EmailField />
+        <EmailField defaultValue={suggestedEmail()} />
         <PasswordField isNew />
       </ActionForm>
       <p className="switch">
@@ -123,10 +128,10 @@ function Login() {
         label={copy.signIn}
         action={async (data) => {
           await request('/auth/login', credentials(data));
-          window.location.assign('/home');
+          window.location.assign(pathAfterSignIn());
         }}
       >
-        <EmailField />
+        <EmailField defaultValue={suggestedEmail()} />
         <PasswordField />
         <a className="forgot-link" href="/forgot">
           {copy.forgotPassword}
@@ -287,6 +292,7 @@ export function App() {
   if (accountScreens[path]) return <CardPage>{accountScreens[path]}</CardPage>;
   if (path === '/' || path === '/home') return <PrivateHome />;
   if (path === '/organizations/new') return <NewOrganization />;
+  if (path === '/invitations') return <AcceptInvitation />;
   const organization = ORGANIZATION_PATH.exec(path);
   if (organization) return <OrganizationWorkspace id={decodeURIComponent(organization[1])} />;
   return (

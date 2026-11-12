@@ -1,6 +1,6 @@
 # Wodyssey
 
-The web app provides account registration, email verification, sign in, sign out, and password recovery. Signed-in accounts create organizations, administer them, and switch between them. The web client is React and TypeScript, the public API is NestJS and TypeScript, and account, one-time link, and session data are persisted in PostgreSQL.
+The web app provides account registration, email verification, sign in, sign out, and password recovery. Signed-in accounts create organizations, administer them, and switch between them. Administrators invite coaches and athletes and set the coach and athlete roles of members; coaches invite athletes. The web client is React and TypeScript, the public API is NestJS and TypeScript, and account, one-time link, and session data are persisted in PostgreSQL.
 
 ## Run locally
 
@@ -11,7 +11,7 @@ npm ci
 npm run dev
 ```
 
-The web app is at `http://localhost:5173`. The runner starts real PostgreSQL locally, preserves development data in `.local/development-postgres`, and stops its processes on Ctrl+C. Email is captured locally at `http://localhost:3000/auth/test/mailbox`; open a message's `url` to verify or recover an account. No real email is sent with the default development configuration.
+The web app is at `http://localhost:5173`. The runner starts real PostgreSQL locally, preserves development data in `.local/development-postgres`, and stops its processes on Ctrl+C. Email is captured locally at `http://localhost:3000/auth/test/mailbox`; open a message's `url` to verify or recover an account, or to accept an invitation. No real email is sent with the default development configuration.
 
 Copy `.env.example` to `.env` to configure an existing PostgreSQL server through `DATABASE_URL`, or an SMTP service through `SMTP_URL` and `EMAIL_FROM`. The development runner loads this file. Docker users can optionally run `npm run dev:db` and configure its database URL.
 
@@ -38,4 +38,8 @@ The controlled mailbox requires both `EMAIL_TRANSPORT=memory` and `TEST_MAILBOX_
 
 The public account endpoints are `POST /auth/register`, `POST /auth/verification/consume`, `POST /auth/verification/resend`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/password/forgot`, and `POST /auth/password/reset`. Authenticated sessions use an HttpOnly, SameSite=Lax cookie backed by a revocable PostgreSQL session. Verification and reset tokens are single-use, expire after 30 minutes, and are stored as hashes.
 
-The organization endpoints require a session: `GET /organizations` lists the organizations of the signed-in account with its roles, `POST /organizations` creates one administered by its creator, and `GET /organizations/:id` and `PATCH /organizations/:id` read and rename it. Organizations the account does not belong to respond as not found. The API applies pending migrations from `apps/api/src/migrations` whenever it starts, including dev server reloads: each runs once, in name order, and is recorded in `schema_migrations`.
+The organization endpoints require a session: `GET /organizations` lists the organizations of the signed-in account with its roles, `POST /organizations` creates one administered by its creator, and `GET /organizations/:id` and `PATCH /organizations/:id` read and rename it. Organizations the account does not belong to respond as not found.
+
+Members and invitations live under an organization. Administrators list members with `GET /organizations/:id/members` and set their coach and athlete roles with `PATCH /organizations/:id/members/:accountId`; the administrator role is kept and every member keeps at least one role. `POST /organizations/:id/invitations` emails a one-time link for an email address and roles: administrators may invite coaches and athletes, coaches only athletes. `GET /organizations/:id/invitations` lists pending invitations (all of them for administrators, their own for coaches) and `DELETE /organizations/:id/invitations/:invitationId` revokes one. `POST /invitations/preview` shows what a pending invitation offers without signing in, and `POST /invitations/accept` grants its roles once, only to the signed-in account with the invited, verified email; invitations expire after 7 days.
+
+The API applies pending migrations from `apps/api/src/migrations` whenever it starts, including dev server reloads: each runs once, in name order, and is recorded in `schema_migrations`.

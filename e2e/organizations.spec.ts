@@ -19,7 +19,7 @@ test('an account creates, renames and switches between the organizations it admi
   await page.getByLabel('Organization name').fill('Northside Training');
   await page.getByLabel('Organization name').press('Enter');
   await expect(page.getByRole('heading', { name: 'Northside Training' })).toBeVisible();
-  await expect(page.getByText('Administrator', { exact: true })).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Your roles' })).toHaveText('Administrator');
   // A single organization is a plain label, not a selector.
   await expect(page.getByRole('button', { name: /Switch organization/ })).toHaveCount(0);
   await page.reload();

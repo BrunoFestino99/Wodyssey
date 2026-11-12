@@ -1,9 +1,19 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ApiError, redirectIfSignedOut, request } from './api';
 import { copy } from './copy';
+import { forgetInvitation } from './pending-invitation';
 
-export function errorMessage(error: unknown, validation: string = copy.errors.validation): string {
+/** Messages for response statuses that mean something specific to one form. */
+export type StatusMessages = Partial<Record<number, string>>;
+
+export function errorMessage(
+  error: unknown,
+  validation: string = copy.errors.validation,
+  statusMessages: StatusMessages = {},
+): string {
   if (error instanceof ApiError) {
+    const specific = statusMessages[error.status];
+    if (specific) return specific;
     if (error.status === 400) return validation;
     if (error.status === 401) return copy.errors.credentials;
     if (error.status === 429) return copy.errors.rateLimit;
@@ -71,12 +81,17 @@ export function ActionForm({
   children,
   secondary = false,
   validationMessage,
+  statusMessages,
+  ariaLabel,
 }: {
   action: (data: FormData) => Promise<void>;
   label: string;
   children?: ReactNode;
   secondary?: boolean;
   validationMessage?: string;
+  statusMessages?: StatusMessages;
+  /** Accessible name when the visible label needs context, such as which item it acts on. */
+  ariaLabel?: string;
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
@@ -91,7 +106,7 @@ export function ActionForm({
     try {
       await action(data);
     } catch (failure) {
-      setError(errorMessage(failure, validationMessage));
+      setError(errorMessage(failure, validationMessage, statusMessages));
     } finally {
       submitting.current = false;
       setPending(false);
@@ -105,7 +120,12 @@ export function ActionForm({
           {error}
         </p>
       )}
-      <button className={secondary ? 'secondary' : 'primary'} type="submit" disabled={pending}>
+      <button
+        className={secondary ? 'secondary' : 'primary'}
+        type="submit"
+        disabled={pending}
+        aria-label={pending ? undefined : ariaLabel}
+      >
         {pending ? copy.working : label}
       </button>
     </form>
@@ -172,15 +192,68 @@ export function PendingLoad({
   );
 }
 
-export function SignOutForm() {
+/** Ends the access session, then opens `next` (the sign-in form by default). */
+export function SignOutForm({ next = '/login' }: { next?: string }) {
   return (
     <ActionForm
       label={copy.signOut}
       secondary
       action={async () => {
         await request('/auth/logout', {});
-        window.location.replace('/login');
+        // An invitation opened in this session belongs to whoever signed out.
+        forgetInvitation();
+        window.location.replace(next);
       }}
     />
+  );
+}
+
+/** Runs a signed-in request, sending a signed-out visitor to sign in instead of failing. */
+export async function signedIn<T>(work: () => Promise<T>): Promise<T | undefined> {
+  try {
+    return await work();
+  } catch (error) {
+    if (redirectIfSignedOut(error)) return undefined;
+    throw error;
+  }
+}
+
+/** A workspace panel whose content needs its own request. */
+export function LoadedPanel<T>({
+  labelledBy,
+  title,
+  description,
+  load,
+  failure,
+  children,
+}: {
+  labelledBy: string;
+  title: string;
+  description?: string;
+  load: SignedInLoad<T>;
+  failure: string;
+  children: (data: T) => ReactNode;
+}) {
+  return (
+    <section className="panel" aria-labelledby={labelledBy} aria-busy={load.state === 'loading'}>
+      <h2 id={labelledBy}>{title}</h2>
+      {description && <p className="panel-description">{description}</p>}
+      {load.state === 'loading' && (
+        <p className="panel-status" role="status">
+          {copy.working}
+        </p>
+      )}
+      {load.state === 'failed' && (
+        <div className="panel-failure">
+          <p className="error" role="alert">
+            {failure}
+          </p>
+          <button className="secondary" type="button" onClick={load.retry}>
+            {copy.retry}
+          </button>
+        </div>
+      )}
+      {load.state === 'ready' && children(load.data)}
+    </section>
   );
 }

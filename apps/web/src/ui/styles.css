@@ -564,6 +564,188 @@ form + .account-email {
   font-size: 12px;
   color: var(--color-text-muted);
 }
+.panel + .panel {
+  margin-top: 20px;
+}
+.checkboxes {
+  margin: 0 0 20px;
+}
+legend {
+  padding: 0;
+  margin: 0 0 6px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text-strong);
+}
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  margin: 0;
+  font-weight: 500;
+  font-size: 15px;
+  color: var(--color-ink);
+  cursor: pointer;
+}
+.checkbox input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--color-action);
+  cursor: pointer;
+}
+.checkbox input:focus-visible {
+  outline: 3px solid var(--color-focus-ring);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+.invitation-sent {
+  display: flex;
+  flex-direction: column;
+  max-width: 420px;
+  margin-top: 20px;
+}
+.panel .invitation-sent .success {
+  margin: 0 0 16px;
+}
+.copy-field {
+  display: flex;
+  gap: 8px;
+}
+.copy-field input {
+  margin: 0;
+  color: var(--color-text-strong);
+  background: var(--color-surface-subtle);
+  text-overflow: ellipsis;
+}
+.copy-field .secondary {
+  flex: none;
+  width: auto;
+}
+.invitation-sent .hint {
+  margin: 8px 0 0;
+}
+.panel-status,
+.panel-empty {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+.panel-empty {
+  margin-top: 18px;
+}
+.panel-failure {
+  max-width: 420px;
+}
+.panel-failure .secondary {
+  width: auto;
+}
+.panel h2 + .entry-list,
+.panel h2 + .panel-status,
+.panel h2 + .panel-failure {
+  margin-top: 18px;
+}
+.entry-actions form {
+  align-items: flex-start;
+}
+.entry-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 20px;
+  padding: 16px 0;
+  border-top: 1px solid var(--color-divider);
+}
+.entry:first-child {
+  border-top: 0;
+  padding-top: 6px;
+}
+.entry:last-child {
+  padding-bottom: 0;
+}
+.entry-details {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.entry-title {
+  margin: 0;
+  font-weight: 650;
+  font-size: 15px;
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+.entry-tag {
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+.entry .roles {
+  margin-top: 8px;
+}
+.entry-meta {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+.panel .entry-feedback {
+  margin: 10px 0 0;
+}
+.entry-actions .secondary {
+  width: auto;
+  min-height: 44px;
+  padding: 8px 14px;
+  font-size: 14px;
+}
+.entry-actions .error {
+  margin-bottom: 8px;
+  max-width: 260px;
+}
+.entry-editor {
+  flex: 1 1 240px;
+  display: flex;
+  flex-direction: column;
+  max-width: 320px;
+}
+.entry-editor .checkboxes {
+  margin-bottom: 12px;
+}
+.text-button {
+  align-self: center;
+  min-height: 44px;
+  margin-top: 4px;
+  padding: 0 12px;
+  border: 0;
+  background: none;
+  color: var(--color-action);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+.text-button:hover {
+  text-decoration: underline;
+}
+.invitation-roles-lede {
+  margin-bottom: 0;
+}
+.invitation-email {
+  margin-top: 18px;
+}
+.stacked-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.stacked-actions .primary {
+  margin-top: 0;
+}
 @media (max-width: 640px) {
   .topbar {
     gap: 10px;
@@ -591,6 +773,11 @@ form + .account-email {
   }
   .workspace h1 {
     font-size: 30px;
+  }
+  .entry-actions,
+  .entry-editor {
+    flex-basis: 100%;
+    max-width: none;
   }
   .panel {
     padding: 22px 18px;
