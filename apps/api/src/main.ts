@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
 import type { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
+import { applyMigrations } from './migrations';
 
 async function bootstrap(): Promise<void> {
   if (process.env.NODE_ENV === 'production') {
@@ -18,6 +19,8 @@ async function bootstrap(): Promise<void> {
     if (!process.env.SMTP_URL || !process.env.EMAIL_FROM)
       throw new Error('SMTP_URL and EMAIL_FROM are required in production.');
   }
+  // Applying here, not in a separate step, keeps a reloaded dev server's schema current.
+  await applyMigrations();
   const webOrigin = new URL(process.env.WEB_ORIGIN ?? 'http://localhost:5173').origin;
   const app = await NestFactory.create(AppModule);
   app.use(cookieParser());

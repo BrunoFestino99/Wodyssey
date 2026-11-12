@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "start:dev": "npm run migrate && ts-node-dev --respawn --transpile-only src/main.ts",
+    "start:dev": "ts-node-dev --respawn --transpile-only src/main.ts",
     "start:e2e": "npm run start:dev",
     "build": "tsc -p tsconfig.json && node scripts/copy-migrations.mjs",
-    "start": "node dist/migrate.js && node dist/main.js",
+    "start": "node dist/main.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint \"src/**/*.ts\"",
     "migrate": "ts-node src/migrate.ts"
