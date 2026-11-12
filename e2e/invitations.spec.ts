@@ -156,6 +156,8 @@ test('a coach invites and revokes athletes, and an administrator also trains as 
   // The administrator adds the athlete role to their own membership.
   await page.getByRole('button', { name: `Account: ${coach}` }).click();
   await page.getByRole('button', { name: 'Sign out' }).click();
+  // The workspace also has an email field; wait for the sign-in form before typing.
+  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
   await page.getByLabel('Email address').fill(adminEmail);
   await signInFromForm(page, adminEmail);
   // Home resumes the organization this browser used last.

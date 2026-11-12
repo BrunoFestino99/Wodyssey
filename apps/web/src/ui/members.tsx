@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { MEMBER_ROLES, request, type Member, type MemberRole, type OrganizationRole } from './api';
 import {
   ActionForm,
@@ -68,11 +68,17 @@ function MemberEntry({
   const [editing, setEditing] = useState(false);
   const [saved, setSaved] = useState(false);
   const editButton = useRef<HTMLButtonElement>(null);
+  const returnFocus = useRef(false);
   const memberRoles = member.roles.filter((role): role is MemberRole => role !== 'administrator');
+  // Closing the editor returns focus to the control that opened it, once that is rendered again.
+  useEffect(() => {
+    if (editing || !returnFocus.current) return;
+    returnFocus.current = false;
+    editButton.current?.focus();
+  }, [editing]);
   const close = () => {
+    returnFocus.current = true;
     setEditing(false);
-    // Return focus to the control that opened the form once it is rendered again.
-    requestAnimationFrame(() => editButton.current?.focus());
   };
   return (
     <li className="entry">
