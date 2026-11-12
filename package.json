@@ -1,0 +1,25 @@
+{
+  "name": "wodyssey",
+  "private": true,
+  "workspaces": ["apps/api", "apps/web"],
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:db": "docker compose up -d postgres",
+    "e2e:servers": "concurrently -k -n api,web -c blue,green \"npm:e2e:api\" \"npm:dev:web\"",
+    "e2e:api": "cross-env DATABASE_URL=postgres://wodyssey:wodyssey@localhost:5432/wodyssey EMAIL_TRANSPORT=memory TEST_MAILBOX_ENABLED=true WEB_ORIGIN=http://127.0.0.1:5173 npm --workspace @wodyssey/api run start:e2e",
+    "dev:api": "npm --workspace @wodyssey/api run start:dev",
+    "dev:web": "npm --workspace @wodyssey/web run dev",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit -p tsconfig.e2e.json",
+    "lint": "eslint \"apps/**/*.{ts,tsx}\" \"e2e/**/*.ts\" *.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@typescript-eslint/parser": "^8.44.1",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.0.0",
+    "eslint": "^9.36.0",
+    "typescript": "^5.9.3"
+  }
+}
