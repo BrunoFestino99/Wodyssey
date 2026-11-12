@@ -31,4 +31,5 @@ export function redirectIfSignedOut(error: unknown): boolean {
 
 export type Account = { email: string };
 export type OrganizationRole = 'administrator';
+export const ORGANIZATION_NAME_MAX_LENGTH = 80;
 export type Organization = { id: string; name: string; roles: OrganizationRole[] };

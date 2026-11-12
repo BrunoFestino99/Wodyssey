@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { randomBytes, createHash } from 'node:crypto';
 import * as argon2 from 'argon2';
-import { database, query } from './database';
+import { query, withTransaction } from './database';
 import { AccountEmailSender } from './email';
 import type { PoolClient } from 'pg';
 
@@ -31,10 +31,7 @@ export class AuthService {
   async register(emailInput: string, password: string): Promise<void> {
     const email = normalizedEmail(emailInput);
     const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
-    const client = await database.connect();
-    let token: string | undefined;
-    try {
-      await client.query('BEGIN');
+    const token = await withTransaction(async (client) => {
       const result = await client.query<Account>(
         `INSERT INTO accounts(email, password_hash) VALUES ($1, $2)
          ON CONFLICT (lower(email)) DO UPDATE SET password_hash = EXCLUDED.password_hash
@@ -42,25 +39,19 @@ export class AuthService {
         [email, passwordHash],
       );
       const account = result.rows[0];
-      if (account) {
-        // A new registration replaces unconfirmed credentials and their links atomically.
-        await client.query(
-          "UPDATE account_tokens SET consumed_at = now() WHERE account_id = $1 AND purpose = 'verification' AND consumed_at IS NULL",
-          [account.id],
-        );
-        token = randomBytes(32).toString('base64url');
-        await client.query(
-          "INSERT INTO account_tokens(account_id, token_hash, purpose, expires_at) VALUES ($1, $2, 'verification', $3)",
-          [account.id, hashToken(token), new Date(Date.now() + tokenLifetimeMs())],
-        );
-      }
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+      if (!account) return undefined;
+      // A new registration replaces unconfirmed credentials and their links atomically.
+      await client.query(
+        "UPDATE account_tokens SET consumed_at = now() WHERE account_id = $1 AND purpose = 'verification' AND consumed_at IS NULL",
+        [account.id],
+      );
+      const verificationToken = randomBytes(32).toString('base64url');
+      await client.query(
+        "INSERT INTO account_tokens(account_id, token_hash, purpose, expires_at) VALUES ($1, $2, 'verification', $3)",
+        [account.id, hashToken(verificationToken), new Date(Date.now() + tokenLifetimeMs())],
+      );
+      return verificationToken;
+    });
     if (token) await this.emailSender.send('verification', email, token);
   }
 
@@ -83,9 +74,7 @@ export class AuthService {
     emailInput: string,
     password: string,
   ): Promise<{ token: string; email: string; expiresAt: Date }> {
-    const client = await database.connect();
-    try {
-      await client.query('BEGIN');
+    return withTransaction(async (client) => {
       const result = await client.query<Account>(
         'SELECT id, email, password_hash, email_verified_at FROM accounts WHERE lower(email) = $1 FOR UPDATE',
         [normalizedEmail(emailInput)],
@@ -104,14 +93,8 @@ export class AuthService {
         'INSERT INTO account_sessions(account_id, token_hash, expires_at) VALUES ($1, $2, $3)',
         [account.id, hashToken(token), expiresAt],
       );
-      await client.query('COMMIT');
       return { token, email: account.email, expiresAt };
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+    });
   }
 
   async logout(token: unknown): Promise<void> {
@@ -163,21 +146,13 @@ export class AuthService {
     purpose: 'verification' | 'reset',
   ): Promise<void> {
     const token = randomBytes(32).toString('base64url');
-    const client = await database.connect();
-    try {
-      await client.query('BEGIN');
+    await withTransaction(async (client) => {
       await client.query('SELECT id FROM accounts WHERE id = $1 FOR UPDATE', [accountId]);
       await client.query(
         'INSERT INTO account_tokens(account_id, token_hash, purpose, expires_at) VALUES ($1, $2, $3, $4)',
         [accountId, hashToken(token), purpose, new Date(Date.now() + tokenLifetimeMs())],
       );
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+    });
     await this.emailSender.send(purpose, email, token);
   }
 
@@ -188,9 +163,7 @@ export class AuthService {
   ): Promise<void> {
     if (typeof token !== 'string' || token.length < 32 || token.length > 256)
       throw new BadRequestException('This link is invalid or has expired.');
-    const client = await database.connect();
-    try {
-      await client.query('BEGIN');
+    await withTransaction(async (client) => {
       const candidate = await client.query<{ account_id: string }>(
         'SELECT account_id FROM account_tokens WHERE token_hash = $1 AND purpose = $2 AND consumed_at IS NULL AND expires_at > now()',
         [hashToken(token), purpose],
@@ -210,12 +183,6 @@ export class AuthService {
         [accountId, purpose],
       );
       await action(accountId, client);
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+    });
   }
 }

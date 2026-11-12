@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ApiError, redirectIfSignedOut } from './api';
+import { ApiError, redirectIfSignedOut, request } from './api';
 import { copy } from './copy';
 
 export function errorMessage(error: unknown, validation: string = copy.errors.validation): string {
@@ -169,5 +169,18 @@ export function PendingLoad({
         </button>
       </Card>
     </CardPage>
+  );
+}
+
+export function SignOutForm() {
+  return (
+    <ActionForm
+      label={copy.signOut}
+      secondary
+      action={async () => {
+        await request('/auth/logout', {});
+        window.location.replace('/login');
+      }}
+    />
   );
 }

@@ -54,10 +54,12 @@ export const copy = {
   passwordUpdatedDescription: 'Your password has been changed. Sign in with your new password.',
   signedInAs: 'Signed in as',
   signOut: 'Sign out',
+  accountMenuLabel: (email: string) => `Account: ${email}`,
   organizations: {
     eyebrow: 'Organization',
     nameLabel: 'Organization name',
-    nameInvalid: 'Enter an organization name of up to 80 characters.',
+    nameInvalid: (maxLength: number) =>
+      `Enter an organization name of up to ${maxLength} characters.`,
     create: 'Create organization',
     noneDescription:
       'You’re not part of an organization yet. Create one for your box or coaching business to start planning.',
@@ -68,13 +70,11 @@ export const copy = {
     newLink: 'New organization',
     cancel: 'Cancel',
     current: 'Current organization:',
-    switchLabel: 'Switch organization, current: {name}',
+    switchLabel: (name: string) => `Switch organization, current: ${name}`,
     yourOrganizations: 'Your organizations',
-    accountLabel: 'Account: {email}',
     yourRoles: 'Your roles',
     roles: { administrator: 'Administrator' },
-    separationDescription:
-      'Members and programs in this organization are kept separate from your other organizations.',
+    separationDescription: 'What you manage here stays separate from your other organizations.',
     settingsTitle: 'Organization settings',
     settingsDescription: 'The name members see for this organization.',
     save: 'Save changes',

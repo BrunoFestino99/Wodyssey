@@ -1,6 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { database } from './database';
+import { database, inTransaction } from './database';
 
 // Arbitrary constant shared by every process that migrates this database.
 const MIGRATION_LOCK = 4_172_031;
@@ -22,15 +22,10 @@ async function migrate(): Promise<void> {
     for (const file of files) {
       if (applied.has(file)) continue;
       const sql = await readFile(join(directory, file), 'utf8');
-      try {
-        await client.query('BEGIN');
+      await inTransaction(client, async () => {
         await client.query(sql);
         await client.query('INSERT INTO schema_migrations(name) VALUES ($1)', [file]);
-        await client.query('COMMIT');
-      } catch (error) {
-        await client.query('ROLLBACK');
-        throw error;
-      }
+      });
     }
   } finally {
     await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK]).catch(() => undefined);

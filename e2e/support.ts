@@ -44,15 +44,10 @@ export async function signedInClient(
 }
 
 /** Signs in through the web form and waits for the signed-in landing screen. */
-export async function signIn(
-  page: Page,
-  email: string,
-  value = password,
-  landing = 'Your training space',
-) {
+export async function signIn(page: Page, email: string, value = password) {
   await page.goto('/login');
   await page.getByLabel('Email address').fill(email);
   await page.getByLabel('Password', { exact: true }).fill(value);
   await page.getByLabel('Password', { exact: true }).press('Enter');
-  await expect(page.getByRole('heading', { name: landing })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Your training space' })).toBeVisible();
 }

@@ -1,11 +1,19 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { ApiError, redirectIfSignedOut, request, type Account, type Organization } from './api';
+import {
+  ApiError,
+  ORGANIZATION_NAME_MAX_LENGTH,
+  redirectIfSignedOut,
+  request,
+  type Account,
+  type Organization,
+} from './api';
 import {
   ActionForm,
   Brand,
   Card,
   CardPage,
   PendingLoad,
+  SignOutForm,
   useFocusOnChange,
   useSignedInLoad,
 } from './components';
@@ -44,7 +52,7 @@ function OrganizationNameField({ defaultValue = '' }: { defaultValue?: string })
         type="text"
         autoComplete="organization"
         required
-        maxLength={80}
+        maxLength={ORGANIZATION_NAME_MAX_LENGTH}
         defaultValue={defaultValue}
       />
     </>
@@ -56,7 +64,7 @@ function CreateOrganizationForm() {
   return (
     <ActionForm
       label={copy.organizations.create}
-      validationMessage={copy.organizations.nameInvalid}
+      validationMessage={copy.organizations.nameInvalid(ORGANIZATION_NAME_MAX_LENGTH)}
       action={async (data) => {
         try {
           const organization = await request<Organization>('/organizations', {
@@ -74,18 +82,23 @@ function CreateOrganizationForm() {
   );
 }
 
-const loadHome = () =>
-  Promise.all([request<Account>('/auth/me'), request<Organization[]>('/organizations')]);
+async function loadHome(): Promise<{ account: Account; organizations: Organization[] }> {
+  const [account, organizations] = await Promise.all([
+    request<Account>('/auth/me'),
+    request<Organization[]>('/organizations'),
+  ]);
+  return { account, organizations };
+}
 
 /** Landing screen: resumes an organization, or offers to create the first one. */
 export function PrivateHome() {
   const load = useSignedInLoad(loadHome);
-  const resume = load.state === 'ready' ? recallOrganization(load.data[1]) : undefined;
+  const resume = load.state === 'ready' ? recallOrganization(load.data.organizations) : undefined;
   useEffect(() => {
     if (resume) window.location.replace(organizationPath(resume.id));
   }, [resume]);
   if (load.state !== 'ready' || resume) return <PendingLoad load={{ state: 'loading' }} />;
-  const [account] = load.data;
+  const { account } = load.data;
   return (
     <CardPage>
       <Card eyebrow={copy.yourAccount} title={copy.privateTitle}>
@@ -111,19 +124,6 @@ export function NewOrganization() {
         </p>
       </Card>
     </CardPage>
-  );
-}
-
-function SignOutForm() {
-  return (
-    <ActionForm
-      label={copy.signOut}
-      secondary
-      action={async () => {
-        await request('/auth/logout', {});
-        window.location.replace('/login');
-      }}
-    />
   );
 }
 
@@ -206,7 +206,7 @@ function OrganizationContext({
   return (
     <Disclosure
       className="organization-switcher"
-      label={copy.organizations.switchLabel.replace('{name}', current.name)}
+      label={copy.organizations.switchLabel(current.name)}
       button={<span className="truncate">{current.name}</span>}
     >
       <p className="panel-heading">{copy.organizations.yourOrganizations}</p>
@@ -230,7 +230,7 @@ function AccountMenu({ account }: { account: Account }) {
   return (
     <Disclosure
       className="account-menu"
-      label={copy.organizations.accountLabel.replace('{email}', account.email)}
+      label={copy.accountMenuLabel(account.email)}
       button={
         <>
           <span className="avatar" aria-hidden="true">
@@ -265,7 +265,7 @@ function RenameOrganizationForm({
     <>
       <ActionForm
         label={copy.organizations.save}
-        validationMessage={copy.organizations.nameInvalid}
+        validationMessage={copy.organizations.nameInvalid(ORGANIZATION_NAME_MAX_LENGTH)}
         action={async (data) => {
           setSaved(false);
           try {

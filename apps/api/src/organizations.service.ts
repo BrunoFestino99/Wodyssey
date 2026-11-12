@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { database, query } from './database';
+import { query, withTransaction } from './database';
 
 export type OrganizationRole = 'administrator';
 export type Organization = { id: string; name: string; roles: OrganizationRole[] };
@@ -18,9 +18,7 @@ const MEMBER_ORGANIZATIONS = `
 @Injectable()
 export class OrganizationsService {
   async create(accountId: string, name: string): Promise<Organization> {
-    const client = await database.connect();
-    try {
-      await client.query('BEGIN');
+    return withTransaction(async (client) => {
       const { rows } = await client.query<{ id: string; name: string }>(
         'INSERT INTO organizations(name, created_by) VALUES ($1, $2) RETURNING id, name',
         [name, accountId],
@@ -34,14 +32,8 @@ export class OrganizationsService {
         "INSERT INTO organization_membership_roles(organization_id, account_id, role) VALUES ($1, $2, 'administrator')",
         [organization.id, accountId],
       );
-      await client.query('COMMIT');
       return { ...organization, roles: ['administrator'] };
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+    });
   }
 
   async list(accountId: string): Promise<Organization[]> {
