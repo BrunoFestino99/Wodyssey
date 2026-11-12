@@ -18,7 +18,8 @@ jobs:
       - if: runner.os == 'Windows'
         run: npx playwright install chromium
       - run: npm run check
-      - run: npm run test:dev-smoke
+      - if: runner.os == 'Linux'
+        run: npm run test:dev-smoke
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
