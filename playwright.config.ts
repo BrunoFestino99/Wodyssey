@@ -35,7 +35,7 @@ export default defineConfig({
       url: webOrigin,
       reuseExistingServer: false,
       timeout: 120_000,
-      env: { VITE_API_URL: apiOrigin },
+      env: { VITE_API_URL: apiOrigin, WEB_ORIGIN: webOrigin },
     },
   ],
 });

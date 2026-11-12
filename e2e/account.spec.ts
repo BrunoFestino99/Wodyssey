@@ -16,6 +16,19 @@ test.afterEach(async ({ page }, testInfo) => {
   await page.screenshot({ path: testInfo.outputPath('screen.png'), fullPage: true });
 });
 
+test('opening the alternate local hostname reaches the sign-in form without an error', async ({
+  page,
+  baseURL,
+}) => {
+  const alternate = new URL(baseURL!);
+  alternate.hostname = alternate.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
+  await page.goto(alternate.toString());
+  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await page.getByLabel('Email address').fill('visitor@example.test');
+  await expect(page.getByLabel('Email address')).toHaveValue('visitor@example.test');
+});
+
 test('the email owner can register over an unverified account with their own password', async ({
   page,
   request,
