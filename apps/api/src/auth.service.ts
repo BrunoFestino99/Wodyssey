@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
-import { randomBytes, createHash } from 'node:crypto';
+import { hashToken, newToken } from './one-time-tokens';
 import * as argon2 from 'argon2';
 import { query, withTransaction } from './database';
 import { AccountEmailSender } from './email';
@@ -9,8 +9,7 @@ export type SignedInAccount = { id: string; email: string };
 type Account = { id: string; email: string; password_hash: string; email_verified_at: Date | null };
 const DEFAULT_TOKEN_LIFETIME_MS = 30 * 60 * 1000;
 const SESSION_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000;
-const normalizedEmail = (email: string) => email.trim().toLowerCase();
-const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
+export const normalizedEmail = (email: string) => email.trim().toLowerCase();
 
 function tokenLifetimeMs(): number {
   if (process.env.EMAIL_TRANSPORT === 'memory' && process.env.TEST_MAILBOX_ENABLED === 'true') {
@@ -45,7 +44,7 @@ export class AuthService {
         "UPDATE account_tokens SET consumed_at = now() WHERE account_id = $1 AND purpose = 'verification' AND consumed_at IS NULL",
         [account.id],
       );
-      const verificationToken = randomBytes(32).toString('base64url');
+      const verificationToken = newToken();
       await client.query(
         "INSERT INTO account_tokens(account_id, token_hash, purpose, expires_at) VALUES ($1, $2, 'verification', $3)",
         [account.id, hashToken(verificationToken), new Date(Date.now() + tokenLifetimeMs())],
@@ -87,7 +86,7 @@ export class AuthService {
           'Email or password is incorrect, or email verification is required.',
         );
       }
-      const token = randomBytes(32).toString('base64url');
+      const token = newToken();
       const expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
       await client.query(
         'INSERT INTO account_sessions(account_id, token_hash, expires_at) VALUES ($1, $2, $3)',
@@ -145,7 +144,7 @@ export class AuthService {
     email: string,
     purpose: 'verification' | 'reset',
   ): Promise<void> {
-    const token = randomBytes(32).toString('base64url');
+    const token = newToken();
     await withTransaction(async (client) => {
       await client.query('SELECT id FROM accounts WHERE id = $1 FOR UPDATE', [accountId]);
       await client.query(

@@ -70,13 +70,14 @@ try {
   if (args[0] === '--expiry') {
     process.exitCode = await playwright(
       ['--config', 'playwright.expiry.config.ts', ...args.slice(1)],
-      { TEST_ACCOUNT_TOKEN_LIFETIME_MS: '3000' },
+      { TEST_ACCOUNT_TOKEN_LIFETIME_MS: '3000', TEST_INVITATION_LIFETIME_MS: '3000' },
     );
   } else {
     process.exitCode = await playwright(args);
     if (process.exitCode === 0 && args.length === 0) {
       process.exitCode = await playwright(['--config', 'playwright.expiry.config.ts'], {
         TEST_ACCOUNT_TOKEN_LIFETIME_MS: '3000',
+        TEST_INVITATION_LIFETIME_MS: '3000',
       });
     }
   }
