@@ -4,3 +4,10 @@ dist/
 playwright-report/
 test-results/
 .local/
+
+# Product and design docs kept local
+docs/design-brief-for-claude.md
+docs/product-decisions.md
+docs/roadmap.md
+docs/specs/
+docs/wodyssey-design-handoff/
