@@ -5,3 +5,4 @@ test-results
 playwright-report
 package-lock.json
 docs
+apps/api/src/migrations

@@ -5,7 +5,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { AccountEmailSender } from './email';
 import { HealthController } from './health.controller';
-import { database } from './database';
+import { pool } from './database';
 import { InvitationsController, OrganizationInvitationsController } from './invitations.controller';
 import { InvitationsService } from './invitations.service';
 import { MembersController } from './members.controller';
@@ -42,6 +42,6 @@ import { SessionGuard } from './session.guard';
 })
 export class AppModule implements OnApplicationShutdown {
   async onApplicationShutdown(): Promise<void> {
-    await database.end();
+    await pool.end();
   }
 }

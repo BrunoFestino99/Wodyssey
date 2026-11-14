@@ -3,7 +3,7 @@ import { Throttle } from '@nestjs/throttler';
 import { ArrayMaxSize, ArrayUnique, IsArray, IsIn } from 'class-validator';
 import type { SignedInAccount } from './auth.service';
 import { MembersService, type Member } from './members.service';
-import { MEMBER_ROLES, type MemberRole } from './organization-access';
+import { MEMBER_ROLES, type MemberRole } from './roles';
 import { CurrentAccount, SessionGuard } from './session.guard';
 
 class MemberRoles {
