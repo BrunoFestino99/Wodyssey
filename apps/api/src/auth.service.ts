@@ -1,12 +1,13 @@
 import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { and, eq, gt, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
 import { hashToken, newToken } from './one-time-tokens';
 import * as argon2 from 'argon2';
-import { query, withTransaction } from './database';
+import { db, lower, now, type Transaction } from './database';
 import { AccountEmailSender } from './email';
-import type { PoolClient } from 'pg';
+import { accounts, accountSessions, accountTokens, TOKEN_PURPOSES } from './schema';
 
 export type SignedInAccount = { id: string; email: string };
-type Account = { id: string; email: string; password_hash: string; email_verified_at: Date | null };
+type TokenPurpose = (typeof TOKEN_PURPOSES)[number];
 const DEFAULT_TOKEN_LIFETIME_MS = 30 * 60 * 1000;
 const SESSION_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000;
 export const normalizedEmail = (email: string) => email.trim().toLowerCase();
@@ -20,6 +21,33 @@ function tokenLifetimeMs(): number {
   return DEFAULT_TOKEN_LIFETIME_MS;
 }
 
+const tokenExpiresAt = () => new Date(Date.now() + tokenLifetimeMs());
+
+const ACCOUNT_FIELDS = {
+  id: accounts.id,
+  email: accounts.email,
+  passwordHash: accounts.passwordHash,
+  emailVerifiedAt: accounts.emailVerifiedAt,
+};
+
+/** Tokens matching `match` that are not consumed and not expired. */
+const usableTokens = (match: SQL, purpose: TokenPurpose) =>
+  and(
+    match,
+    eq(accountTokens.purpose, purpose),
+    isNull(accountTokens.consumedAt),
+    gt(accountTokens.expiresAt, now()),
+  );
+
+/** Holds the account's row so concurrent token and credential changes run one at a time. */
+async function lockAccount(tx: Transaction, accountId: string): Promise<void> {
+  await tx
+    .select({ id: accounts.id })
+    .from(accounts)
+    .where(eq(accounts.id, accountId))
+    .for('update');
+}
+
 @Injectable()
 export class AuthService {
   constructor(private readonly emailSender: AccountEmailSender) {}
@@ -30,25 +58,32 @@ export class AuthService {
   async register(emailInput: string, password: string): Promise<void> {
     const email = normalizedEmail(emailInput);
     const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
-    const token = await withTransaction(async (client) => {
-      const result = await client.query<Account>(
-        `INSERT INTO accounts(email, password_hash) VALUES ($1, $2)
-         ON CONFLICT (lower(email)) DO UPDATE SET password_hash = EXCLUDED.password_hash
-         WHERE accounts.email_verified_at IS NULL RETURNING id`,
-        [email, passwordHash],
-      );
-      const account = result.rows[0];
+    const token = await db.transaction(async (tx) => {
+      // The query builder cannot target the expression index on lower(email).
+      const { rows } = await tx.execute<{ id: string }>(sql`
+        INSERT INTO ${accounts} (email, password_hash) VALUES (${email}, ${passwordHash})
+        ON CONFLICT (lower(email)) DO UPDATE SET password_hash = EXCLUDED.password_hash
+        WHERE ${accounts.emailVerifiedAt} IS NULL RETURNING id`);
+      const account = rows[0];
       if (!account) return undefined;
       // A new registration replaces unconfirmed credentials and their links atomically.
-      await client.query(
-        "UPDATE account_tokens SET consumed_at = now() WHERE account_id = $1 AND purpose = 'verification' AND consumed_at IS NULL",
-        [account.id],
-      );
+      await tx
+        .update(accountTokens)
+        .set({ consumedAt: now() })
+        .where(
+          and(
+            eq(accountTokens.accountId, account.id),
+            eq(accountTokens.purpose, 'verification'),
+            isNull(accountTokens.consumedAt),
+          ),
+        );
       const verificationToken = newToken();
-      await client.query(
-        "INSERT INTO account_tokens(account_id, token_hash, purpose, expires_at) VALUES ($1, $2, 'verification', $3)",
-        [account.id, hashToken(verificationToken), new Date(Date.now() + tokenLifetimeMs())],
-      );
+      await tx.insert(accountTokens).values({
+        accountId: account.id,
+        tokenHash: hashToken(verificationToken),
+        purpose: 'verification',
+        expiresAt: tokenExpiresAt(),
+      });
       return verificationToken;
     });
     if (token) await this.emailSender.send('verification', email, token);
@@ -56,16 +91,16 @@ export class AuthService {
 
   async resendVerification(emailInput: string): Promise<void> {
     const account = await this.findByEmail(emailInput);
-    if (account && !account.email_verified_at)
+    if (account && !account.emailVerifiedAt)
       await this.issueToken(account.id, account.email, 'verification');
   }
 
   async verify(token: string): Promise<void> {
-    await this.consumeToken(token, 'verification', async (accountId, client) => {
-      await client.query(
-        'UPDATE accounts SET email_verified_at = COALESCE(email_verified_at, now()) WHERE id = $1',
-        [accountId],
-      );
+    await this.consumeToken(token, 'verification', async (accountId, tx) => {
+      await tx
+        .update(accounts)
+        .set({ emailVerifiedAt: sql`coalesce(${accounts.emailVerifiedAt}, now())` })
+        .where(eq(accounts.id, accountId));
     });
   }
 
@@ -73,57 +108,60 @@ export class AuthService {
     emailInput: string,
     password: string,
   ): Promise<{ token: string; email: string; expiresAt: Date }> {
-    return withTransaction(async (client) => {
-      const result = await client.query<Account>(
-        'SELECT id, email, password_hash, email_verified_at FROM accounts WHERE lower(email) = $1 FOR UPDATE',
-        [normalizedEmail(emailInput)],
-      );
-      const account = result.rows[0];
-      const passwordHash = account?.password_hash ?? (await this.dummyPasswordHash);
+    return db.transaction(async (tx) => {
+      const [account] = await tx
+        .select(ACCOUNT_FIELDS)
+        .from(accounts)
+        .where(eq(lower(accounts.email), normalizedEmail(emailInput)))
+        .for('update');
+      const passwordHash = account?.passwordHash ?? (await this.dummyPasswordHash);
       const validPassword = await argon2.verify(passwordHash, password).catch(() => false);
-      if (!account || !validPassword || !account.email_verified_at) {
+      if (!account || !validPassword || !account.emailVerifiedAt) {
         throw new UnauthorizedException(
           'Email or password is incorrect, or email verification is required.',
         );
       }
       const token = newToken();
       const expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
-      await client.query(
-        'INSERT INTO account_sessions(account_id, token_hash, expires_at) VALUES ($1, $2, $3)',
-        [account.id, hashToken(token), expiresAt],
-      );
+      await tx
+        .insert(accountSessions)
+        .values({ accountId: account.id, tokenHash: hashToken(token), expiresAt });
       return { token, email: account.email, expiresAt };
     });
   }
 
   async logout(token: unknown): Promise<void> {
     if (typeof token === 'string')
-      await query('DELETE FROM account_sessions WHERE token_hash = $1', [hashToken(token)]);
+      await db.delete(accountSessions).where(eq(accountSessions.tokenHash, hashToken(token)));
   }
 
   async currentAccount(token: unknown): Promise<SignedInAccount | null> {
     if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
-    const result = await query<SignedInAccount>(
-      'SELECT a.id, a.email FROM account_sessions s JOIN accounts a ON a.id = s.account_id WHERE s.token_hash = $1 AND s.expires_at > now() AND a.email_verified_at IS NOT NULL',
-      [hashToken(token)],
-    );
-    return result.rows[0] ?? null;
+    const [account] = await db
+      .select({ id: accounts.id, email: accounts.email })
+      .from(accountSessions)
+      .innerJoin(accounts, eq(accounts.id, accountSessions.accountId))
+      .where(
+        and(
+          eq(accountSessions.tokenHash, hashToken(token)),
+          gt(accountSessions.expiresAt, now()),
+          isNotNull(accounts.emailVerifiedAt),
+        ),
+      );
+    return account ?? null;
   }
 
   async forgotPassword(emailInput: string): Promise<void> {
     const account = await this.findByEmail(emailInput);
-    if (account && account.email_verified_at)
+    if (account && account.emailVerifiedAt)
       await this.issueToken(account.id, account.email, 'reset');
   }
 
   async resetPassword(token: string, password: string): Promise<void> {
-    await this.consumeToken(token, 'reset', async (accountId, client) => {
+    await this.consumeToken(token, 'reset', async (accountId, tx) => {
       const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
-      await client.query('UPDATE accounts SET password_hash = $1 WHERE id = $2', [
-        passwordHash,
-        accountId,
-      ]);
-      await client.query('DELETE FROM account_sessions WHERE account_id = $1', [accountId]);
+      await tx.update(accounts).set({ passwordHash }).where(eq(accounts.id, accountId));
+      await tx.delete(accountSessions).where(eq(accountSessions.accountId, accountId));
     });
   }
 
@@ -131,57 +169,54 @@ export class AuthService {
     return this.emailSender.readMailbox(email);
   }
 
-  private async findByEmail(emailInput: string): Promise<Account | undefined> {
-    const result = await query<Account>(
-      'SELECT id, email, password_hash, email_verified_at FROM accounts WHERE lower(email) = $1',
-      [normalizedEmail(emailInput)],
-    );
-    return result.rows[0];
+  private async findByEmail(emailInput: string) {
+    const [account] = await db
+      .select(ACCOUNT_FIELDS)
+      .from(accounts)
+      .where(eq(lower(accounts.email), normalizedEmail(emailInput)));
+    return account;
   }
 
-  private async issueToken(
-    accountId: string,
-    email: string,
-    purpose: 'verification' | 'reset',
-  ): Promise<void> {
+  private async issueToken(accountId: string, email: string, purpose: TokenPurpose): Promise<void> {
     const token = newToken();
-    await withTransaction(async (client) => {
-      await client.query('SELECT id FROM accounts WHERE id = $1 FOR UPDATE', [accountId]);
-      await client.query(
-        'INSERT INTO account_tokens(account_id, token_hash, purpose, expires_at) VALUES ($1, $2, $3, $4)',
-        [accountId, hashToken(token), purpose, new Date(Date.now() + tokenLifetimeMs())],
-      );
+    await db.transaction(async (tx) => {
+      await lockAccount(tx, accountId);
+      await tx.insert(accountTokens).values({
+        accountId,
+        tokenHash: hashToken(token),
+        purpose,
+        expiresAt: tokenExpiresAt(),
+      });
     });
     await this.emailSender.send(purpose, email, token);
   }
 
   private async consumeToken(
     token: string,
-    purpose: 'verification' | 'reset',
-    action: (accountId: string, client: PoolClient) => Promise<void>,
+    purpose: TokenPurpose,
+    action: (accountId: string, tx: Transaction) => Promise<void>,
   ): Promise<void> {
     if (typeof token !== 'string' || token.length < 32 || token.length > 256)
       throw new BadRequestException('This link is invalid or has expired.');
-    await withTransaction(async (client) => {
-      const candidate = await client.query<{ account_id: string }>(
-        'SELECT account_id FROM account_tokens WHERE token_hash = $1 AND purpose = $2 AND consumed_at IS NULL AND expires_at > now()',
-        [hashToken(token), purpose],
-      );
-      const candidateAccountId = candidate.rows[0]?.account_id;
-      if (!candidateAccountId)
-        throw new BadRequestException('This link is invalid or has expired.');
-      await client.query('SELECT id FROM accounts WHERE id = $1 FOR UPDATE', [candidateAccountId]);
-      const result = await client.query<{ account_id: string }>(
-        'UPDATE account_tokens SET consumed_at = now() WHERE token_hash = $1 AND purpose = $2 AND consumed_at IS NULL AND expires_at > now() RETURNING account_id',
-        [hashToken(token), purpose],
-      );
-      const accountId = result.rows[0]?.account_id;
-      if (!accountId) throw new BadRequestException('This link is invalid or has expired.');
-      await client.query(
-        'UPDATE account_tokens SET consumed_at = now() WHERE account_id = $1 AND purpose = $2 AND consumed_at IS NULL AND expires_at > now()',
-        [accountId, purpose],
-      );
-      await action(accountId, client);
+    const tokenHash = hashToken(token);
+    await db.transaction(async (tx) => {
+      const [candidate] = await tx
+        .select({ accountId: accountTokens.accountId })
+        .from(accountTokens)
+        .where(usableTokens(eq(accountTokens.tokenHash, tokenHash), purpose));
+      if (!candidate) throw new BadRequestException('This link is invalid or has expired.');
+      await lockAccount(tx, candidate.accountId);
+      const [consumed] = await tx
+        .update(accountTokens)
+        .set({ consumedAt: now() })
+        .where(usableTokens(eq(accountTokens.tokenHash, tokenHash), purpose))
+        .returning({ accountId: accountTokens.accountId });
+      if (!consumed) throw new BadRequestException('This link is invalid or has expired.');
+      await tx
+        .update(accountTokens)
+        .set({ consumedAt: now() })
+        .where(usableTokens(eq(accountTokens.accountId, consumed.accountId), purpose));
+      await action(consumed.accountId, tx);
     });
   }
 }

@@ -4,16 +4,18 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { query, withTransaction } from './database';
+import { and, eq, inArray, notInArray } from 'drizzle-orm';
+import { db } from './database';
 import {
+  aggregatedRoles,
   assertIdentifier,
   lockMemberships,
-  MEMBER_ROLES,
+  membershipRolesJoin,
   sortedRoles,
-  type MemberRole,
-  type OrganizationRole,
 } from './organization-access';
 import { OrganizationsService } from './organizations.service';
+import { MEMBER_ROLES, type MemberRole, type OrganizationRole } from './roles';
+import { accounts, organizationMembershipRoles, organizationMemberships } from './schema';
 
 export type Member = { accountId: string; email: string; roles: OrganizationRole[] };
 
@@ -24,19 +26,18 @@ export class MembersService {
   async list(actorId: string, organizationId: string): Promise<Member[]> {
     const { roles } = await this.organizations.get(actorId, organizationId);
     if (!roles.includes('administrator')) throw new ForbiddenException();
-    const { rows } = await query<Member>(
-      `SELECT m.account_id AS "accountId", a.email,
-              COALESCE(array_agg(r.role ORDER BY r.role) FILTER (WHERE r.role IS NOT NULL), '{}') AS roles
-       FROM organization_memberships m
-       JOIN accounts a ON a.id = m.account_id
-       LEFT JOIN organization_membership_roles r
-         ON r.organization_id = m.organization_id AND r.account_id = m.account_id
-       WHERE m.organization_id = $1
-       GROUP BY m.account_id, a.email, m.joined_at
-       ORDER BY m.joined_at, a.email`,
-      [organizationId],
-    );
-    return rows;
+    return db
+      .select({
+        accountId: organizationMemberships.accountId,
+        email: accounts.email,
+        roles: aggregatedRoles,
+      })
+      .from(organizationMemberships)
+      .innerJoin(accounts, eq(accounts.id, organizationMemberships.accountId))
+      .leftJoin(organizationMembershipRoles, membershipRolesJoin)
+      .where(eq(organizationMemberships.organizationId, organizationId))
+      .groupBy(organizationMemberships.accountId, accounts.email, organizationMemberships.joinedAt)
+      .orderBy(organizationMemberships.joinedAt, accounts.email);
   }
 
   /**
@@ -50,8 +51,8 @@ export class MembersService {
     memberRoles: MemberRole[],
   ): Promise<Member> {
     assertIdentifier(accountId);
-    return withTransaction(async (client) => {
-      const locked = await lockMemberships(client, organizationId, [actorId, accountId], 'UPDATE');
+    return db.transaction(async (tx) => {
+      const locked = await lockMemberships(tx, organizationId, [actorId, accountId], 'update');
       const actor = locked.get(actorId);
       if (!actor) throw new NotFoundException();
       if (!actor.includes('administrator')) throw new ForbiddenException();
@@ -62,22 +63,26 @@ export class MembersService {
         ...memberRoles,
       ]);
       if (roles.length === 0) throw new BadRequestException('A member needs at least one role.');
-      await client.query(
-        `DELETE FROM organization_membership_roles
-         WHERE organization_id = $1 AND account_id = $2
-           AND role = ANY($3::text[]) AND NOT role = ANY($4::text[])`,
-        [organizationId, accountId, MEMBER_ROLES, memberRoles],
-      );
-      await client.query(
-        `INSERT INTO organization_membership_roles(organization_id, account_id, role)
-         SELECT $1, $2, unnest($3::text[]) ON CONFLICT DO NOTHING`,
-        [organizationId, accountId, memberRoles],
-      );
-      const { rows } = await client.query<{ email: string }>(
-        'SELECT email FROM accounts WHERE id = $1',
-        [accountId],
-      );
-      return { accountId, email: rows[0].email, roles };
+      await tx
+        .delete(organizationMembershipRoles)
+        .where(
+          and(
+            eq(organizationMembershipRoles.organizationId, organizationId),
+            eq(organizationMembershipRoles.accountId, accountId),
+            inArray(organizationMembershipRoles.role, MEMBER_ROLES),
+            notInArray(organizationMembershipRoles.role, memberRoles),
+          ),
+        );
+      if (memberRoles.length > 0)
+        await tx
+          .insert(organizationMembershipRoles)
+          .values(memberRoles.map((role) => ({ organizationId, accountId, role })))
+          .onConflictDoNothing();
+      const [member] = await tx
+        .select({ email: accounts.email })
+        .from(accounts)
+        .where(eq(accounts.id, accountId));
+      return { accountId, email: member.email, roles };
     });
   }
 }

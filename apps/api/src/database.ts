@@ -1,39 +1,18 @@
-import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from 'pg';
+import { sql, type AnyColumn, type SQL } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { Pool } from 'pg';
+import * as schema from './schema';
 
-export const database = new Pool({
+export const pool = new Pool({
   connectionString:
     process.env.DATABASE_URL ?? 'postgres://wodyssey:wodyssey@localhost:5432/wodyssey',
 });
 
-export function query<Row extends QueryResultRow>(
-  text: string,
-  values: unknown[] = [],
-): Promise<QueryResult<Row>> {
-  return database.query<Row>(text, values);
-}
+export const db = drizzle({ client: pool, schema });
 
-/** Runs `work` in a transaction on `client`, rolling back if it throws. */
-export async function inTransaction<T>(
-  client: PoolClient,
-  work: (client: PoolClient) => Promise<T>,
-): Promise<T> {
-  await client.query('BEGIN');
-  try {
-    const result = await work(client);
-    await client.query('COMMIT');
-    return result;
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  }
-}
+export type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-/** Runs `work` in a transaction on a pooled connection. */
-export async function withTransaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
-  const client = await database.connect();
-  try {
-    return await inTransaction(client, work);
-  } finally {
-    client.release();
-  }
-}
+/** The database clock, so time comparisons do not depend on the API server's clock. */
+export const now = (): SQL<Date> => sql`now()`;
+
+export const lower = (column: AnyColumn): SQL<string> => sql`lower(${column})`;

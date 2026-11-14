@@ -1,10 +1,8 @@
 import { NotFoundException } from '@nestjs/common';
-import type { PoolClient } from 'pg';
-
-export type OrganizationRole = 'administrator' | 'athlete' | 'coach';
-/** Roles granted through invitations and member management; administrators are not invited. */
-export type MemberRole = Exclude<OrganizationRole, 'administrator'>;
-export const MEMBER_ROLES: readonly MemberRole[] = ['athlete', 'coach'];
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import type { Transaction } from './database';
+import type { MemberRole, OrganizationRole } from './roles';
+import { organizationMembershipRoles, organizationMemberships } from './schema';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -18,43 +16,66 @@ export function sortedRoles<Role extends OrganizationRole>(roles: Iterable<Role>
   return [...new Set(roles)].sort();
 }
 
+/** Joins a membership to its roles, keeping memberships without any. */
+export const membershipRolesJoin = and(
+  eq(organizationMembershipRoles.organizationId, organizationMemberships.organizationId),
+  eq(organizationMembershipRoles.accountId, organizationMemberships.accountId),
+);
+
+/** The roles joined through `membershipRolesJoin`, ordered, or an empty array when there are none. */
+export const aggregatedRoles = sql<
+  OrganizationRole[]
+>`coalesce(array_agg(${organizationMembershipRoles.role} ORDER BY ${organizationMembershipRoles.role})
+  FILTER (WHERE ${organizationMembershipRoles.role} IS NOT NULL), '{}')`;
+
 /**
  * Roles of every listed member, locking their memberships until the transaction ends
  * so concurrent role changes cannot interleave with checks made on them. Rows are
  * locked in a fixed order to avoid deadlocks; non-members are absent from the result.
  */
 export async function lockMemberships(
-  client: PoolClient,
+  tx: Transaction,
   organizationId: string,
   accountIds: string[],
-  mode: 'SHARE' | 'UPDATE',
+  mode: 'share' | 'update',
 ): Promise<Map<string, OrganizationRole[]>> {
   assertIdentifier(organizationId);
-  const locked = await client.query<{ account_id: string }>(
-    `SELECT account_id FROM organization_memberships
-     WHERE organization_id = $1 AND account_id = ANY($2::uuid[])
-     ORDER BY account_id FOR ${mode}`,
-    [organizationId, accountIds],
-  );
-  const roles = new Map(locked.rows.map((row) => [row.account_id, [] as OrganizationRole[]]));
-  const granted = await client.query<{ account_id: string; role: OrganizationRole }>(
-    `SELECT account_id, role FROM organization_membership_roles
-     WHERE organization_id = $1 AND account_id = ANY($2::uuid[]) ORDER BY role`,
-    [organizationId, accountIds],
-  );
-  for (const { account_id, role } of granted.rows) roles.get(account_id)?.push(role);
+  const locked = await tx
+    .select({ accountId: organizationMemberships.accountId })
+    .from(organizationMemberships)
+    .where(
+      and(
+        eq(organizationMemberships.organizationId, organizationId),
+        inArray(organizationMemberships.accountId, accountIds),
+      ),
+    )
+    .orderBy(organizationMemberships.accountId)
+    .for(mode);
+  const roles = new Map(locked.map((row) => [row.accountId, [] as OrganizationRole[]]));
+  const granted = await tx
+    .select({
+      accountId: organizationMembershipRoles.accountId,
+      role: organizationMembershipRoles.role,
+    })
+    .from(organizationMembershipRoles)
+    .where(
+      and(
+        eq(organizationMembershipRoles.organizationId, organizationId),
+        inArray(organizationMembershipRoles.accountId, accountIds),
+      ),
+    )
+    .orderBy(organizationMembershipRoles.role);
+  for (const { accountId, role } of granted) roles.get(accountId)?.push(role);
   return roles;
 }
 
 /** The acting account's roles, locked for the transaction; non-members are not found. */
 export async function actorRoles(
-  client: PoolClient,
+  tx: Transaction,
   organizationId: string,
   accountId: string,
 ): Promise<OrganizationRole[]> {
-  const roles = (await lockMemberships(client, organizationId, [accountId], 'SHARE')).get(
-    accountId,
-  );
+  const roles = (await lockMemberships(tx, organizationId, [accountId], 'share')).get(accountId);
   if (!roles) throw new NotFoundException();
   return roles;
 }

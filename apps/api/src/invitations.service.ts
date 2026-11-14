@@ -4,8 +4,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { and, arrayContained, eq, exists, gt, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { normalizedEmail, type SignedInAccount } from './auth.service';
-import { query, withTransaction } from './database';
+import { db, lower, now } from './database';
 import { AccountEmailSender, emailLink } from './email';
 import { hashToken, newToken } from './one-time-tokens';
 import {
@@ -15,10 +17,16 @@ import {
   mayFollowUpInvitations,
   mayInvite,
   sortedRoles,
-  type MemberRole,
-  type OrganizationRole,
 } from './organization-access';
 import { OrganizationsService, type Organization } from './organizations.service';
+import type { MemberRole, OrganizationRole } from './roles';
+import {
+  accounts,
+  organizationInvitations as invitations,
+  organizationMembershipRoles,
+  organizationMemberships,
+  organizations,
+} from './schema';
 
 const DEFAULT_INVITATION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -36,7 +44,7 @@ export type Invitation = {
   email: string;
   roles: MemberRole[];
   invitedBy: string;
-  expiresAt: string;
+  expiresAt: Date;
 };
 export type SentInvitation = { invitation: Invitation; url: string };
 export type InvitationPreview =
@@ -45,23 +53,50 @@ export type InvitationPreview =
       organization: { name: string };
       email: string;
       roles: MemberRole[];
-      expiresAt: string;
+      expiresAt: Date;
     }
   | { status: 'joined'; organization: { id: string; name: string } };
+
+const inviterRole = alias(organizationMembershipRoles, 'inviter_role');
+const inviter = alias(accounts, 'inviter');
 
 /**
  * An invitation can be accepted while it is unused, unrevoked, unexpired, and its inviter
  * still holds a role allowed to send it (the same rule as `mayInvite`): removing someone's
  * coach role also withdraws the athlete invitations they sent.
  */
-const PENDING = `i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > now()
-  AND EXISTS (
-    SELECT 1 FROM organization_membership_roles inviter_role
-    WHERE inviter_role.organization_id = i.organization_id
-      AND inviter_role.account_id = i.invited_by
-      AND (inviter_role.role = 'administrator'
-        OR (inviter_role.role = 'coach' AND i.roles = ARRAY['athlete']::text[])))`;
-const INVITATION_FIELDS = `i.id, i.email, i.roles, inviter.email AS "invitedBy", i.expires_at AS "expiresAt"`;
+const PENDING: SQL<boolean> = sql`${and(
+  isNull(invitations.acceptedAt),
+  isNull(invitations.revokedAt),
+  gt(invitations.expiresAt, now()),
+  exists(
+    db
+      .select({ one: sql`1` })
+      .from(inviterRole)
+      .where(
+        and(
+          eq(inviterRole.organizationId, invitations.organizationId),
+          eq(inviterRole.accountId, invitations.invitedBy),
+          or(
+            eq(inviterRole.role, 'administrator'),
+            and(eq(inviterRole.role, 'coach'), eq(invitations.roles, ['athlete'])),
+          ),
+        ),
+      ),
+  ),
+)}`;
+
+/** Administrators follow up every invitation; coaches only the ones they sent. */
+const followedUpBy = (actorId: string, roles: OrganizationRole[]) =>
+  roles.includes('administrator') ? undefined : eq(invitations.invitedBy, actorId);
+
+const INVITATION_FIELDS = {
+  id: invitations.id,
+  email: invitations.email,
+  roles: invitations.roles,
+  invitedBy: inviter.email,
+  expiresAt: invitations.expiresAt,
+};
 
 @Injectable()
 export class InvitationsService {
@@ -83,78 +118,99 @@ export class InvitationsService {
     const email = normalizedEmail(emailInput);
     const roles = sortedRoles(requestedRoles);
     const token = newToken();
-    const invitation = await withTransaction(async (client) => {
-      if (!mayInvite(await actorRoles(client, organizationId, actorId), roles))
+    const invitation = await db.transaction(async (tx) => {
+      if (!mayInvite(await actorRoles(tx, organizationId, actorId), roles))
         throw new ForbiddenException();
-      const held = await client.query<{ role: OrganizationRole }>(
-        `SELECT r.role FROM organization_membership_roles r
-         JOIN accounts a ON a.id = r.account_id
-         WHERE r.organization_id = $1 AND lower(a.email) = $2`,
-        [organizationId, email],
-      );
-      const heldRoles = new Set(held.rows.map((row) => row.role));
+      const held = await tx
+        .select({ role: organizationMembershipRoles.role })
+        .from(organizationMembershipRoles)
+        .innerJoin(accounts, eq(accounts.id, organizationMembershipRoles.accountId))
+        .where(
+          and(
+            eq(organizationMembershipRoles.organizationId, organizationId),
+            eq(lower(accounts.email), email),
+          ),
+        );
+      const heldRoles = new Set(held.map((row) => row.role));
       if (roles.every((role) => heldRoles.has(role)))
         throw new ConflictException('This person already has these roles.');
-      await client.query(
-        `UPDATE organization_invitations i SET revoked_at = now()
-         WHERE i.organization_id = $1 AND i.email = $2 AND i.roles = $3::text[]
-           AND i.invited_by = $4 AND ${PENDING}`,
-        [organizationId, email, roles, actorId],
-      );
-      const inserted = await client.query<Invitation>(
-        `WITH i AS (
-           INSERT INTO organization_invitations
-             (organization_id, email, roles, token_hash, invited_by, expires_at)
-           VALUES ($1, $2, $3, $4, $5, $6) RETURNING *)
-         SELECT ${INVITATION_FIELDS} FROM i JOIN accounts inviter ON inviter.id = i.invited_by`,
-        [
+      await tx
+        .update(invitations)
+        .set({ revokedAt: now() })
+        .where(
+          and(
+            eq(invitations.organizationId, organizationId),
+            eq(invitations.email, email),
+            eq(invitations.roles, roles),
+            eq(invitations.invitedBy, actorId),
+            PENDING,
+          ),
+        );
+      const [inserted] = await tx
+        .insert(invitations)
+        .values({
           organizationId,
           email,
           roles,
-          hashToken(token),
-          actorId,
-          new Date(Date.now() + invitationLifetimeMs()),
-        ],
-      );
-      const organization = await client.query<{ name: string }>(
-        'SELECT name FROM organizations WHERE id = $1',
-        [organizationId],
-      );
+          tokenHash: hashToken(token),
+          invitedBy: actorId,
+          expiresAt: new Date(Date.now() + invitationLifetimeMs()),
+        })
+        .returning({ id: invitations.id });
+      const [created] = await tx
+        .select(INVITATION_FIELDS)
+        .from(invitations)
+        .innerJoin(inviter, eq(inviter.id, invitations.invitedBy))
+        .where(eq(invitations.id, inserted.id));
+      const [organization] = await tx
+        .select({ name: organizations.name })
+        .from(organizations)
+        .where(eq(organizations.id, organizationId));
       // Sending before commit means a failed email leaves no invitation nobody received.
-      await this.email.sendInvitation(email, token, organization.rows[0].name);
-      return inserted.rows[0];
+      await this.email.sendInvitation(email, token, organization.name);
+      return created;
     });
     return { invitation, url: emailLink('invitation', token) };
   }
 
   /** Administrators see every pending invitation; coaches see the ones they sent. */
   async listPending(actorId: string, organizationId: string): Promise<Invitation[]> {
-    return withTransaction(async (client) => {
-      const roles = await actorRoles(client, organizationId, actorId);
+    return db.transaction(async (tx) => {
+      const roles = await actorRoles(tx, organizationId, actorId);
       if (!mayFollowUpInvitations(roles)) throw new ForbiddenException();
-      const { rows } = await client.query<Invitation>(
-        `SELECT ${INVITATION_FIELDS} FROM organization_invitations i
-         JOIN accounts inviter ON inviter.id = i.invited_by
-         WHERE i.organization_id = $1 AND ${PENDING} AND ($3 OR i.invited_by = $2)
-         ORDER BY i.created_at, i.id`,
-        [organizationId, actorId, roles.includes('administrator')],
-      );
-      return rows;
+      return tx
+        .select(INVITATION_FIELDS)
+        .from(invitations)
+        .innerJoin(inviter, eq(inviter.id, invitations.invitedBy))
+        .where(
+          and(
+            eq(invitations.organizationId, organizationId),
+            PENDING,
+            followedUpBy(actorId, roles),
+          ),
+        )
+        .orderBy(invitations.createdAt, invitations.id);
     });
   }
 
   async revoke(actorId: string, organizationId: string, invitationId: string): Promise<void> {
-    await withTransaction(async (client) => {
-      const roles = await actorRoles(client, organizationId, actorId);
+    await db.transaction(async (tx) => {
+      const roles = await actorRoles(tx, organizationId, actorId);
       assertIdentifier(invitationId);
       if (!mayFollowUpInvitations(roles)) throw new ForbiddenException();
-      const { rowCount } = await client.query(
-        `UPDATE organization_invitations i SET revoked_at = now()
-         WHERE i.id = $1 AND i.organization_id = $2 AND ${PENDING}
-           AND ($4 OR i.invited_by = $3)`,
-        [invitationId, organizationId, actorId, roles.includes('administrator')],
-      );
-      if (!rowCount) throw new NotFoundException();
+      const revoked = await tx
+        .update(invitations)
+        .set({ revokedAt: now() })
+        .where(
+          and(
+            eq(invitations.id, invitationId),
+            eq(invitations.organizationId, organizationId),
+            PENDING,
+            followedUpBy(actorId, roles),
+          ),
+        )
+        .returning({ id: invitations.id });
+      if (revoked.length === 0) throw new NotFoundException();
     });
   }
 
@@ -164,25 +220,22 @@ export class InvitationsService {
    * invitation does not exist.
    */
   async preview(token: string, account: SignedInAccount | null): Promise<InvitationPreview> {
-    const { rows } = await query<{
-      organization_id: string;
-      name: string;
-      email: string;
-      roles: MemberRole[];
-      expires_at: string;
-      accepted_by: string | null;
-      pending: boolean;
-    }>(
-      `SELECT i.organization_id, o.name, i.email, i.roles, i.expires_at, i.accepted_by,
-              ${PENDING} AS pending
-       FROM organization_invitations i JOIN organizations o ON o.id = i.organization_id
-       WHERE i.token_hash = $1`,
-      [hashToken(token)],
-    );
-    const invitation = rows[0];
-    if (account && invitation?.accepted_by === account.id) {
+    const [invitation] = await db
+      .select({
+        organizationId: invitations.organizationId,
+        name: organizations.name,
+        email: invitations.email,
+        roles: invitations.roles,
+        expiresAt: invitations.expiresAt,
+        acceptedBy: invitations.acceptedBy,
+        pending: PENDING,
+      })
+      .from(invitations)
+      .innerJoin(organizations, eq(organizations.id, invitations.organizationId))
+      .where(eq(invitations.tokenHash, hashToken(token)));
+    if (account && invitation?.acceptedBy === account.id) {
       const joined = await this.organizations
-        .get(account.id, invitation.organization_id)
+        .get(account.id, invitation.organizationId)
         .catch(() => null);
       if (joined) return { status: 'joined', organization: { id: joined.id, name: joined.name } };
     }
@@ -192,7 +245,7 @@ export class InvitationsService {
       organization: { name: invitation.name },
       email: invitation.email,
       roles: invitation.roles,
-      expiresAt: invitation.expires_at,
+      expiresAt: invitation.expiresAt,
     };
   }
 
@@ -201,60 +254,74 @@ export class InvitationsService {
    * again from the same account answers with the organization instead of failing.
    */
   async accept(account: SignedInAccount, token: string): Promise<Organization> {
-    const organizationId = await withTransaction(async (client) => {
-      const found = await client.query<{ organization_id: string; invited_by: string }>(
-        'SELECT organization_id, invited_by FROM organization_invitations WHERE token_hash = $1',
-        [hashToken(token)],
-      );
-      if (!found.rows[0]) throw new NotFoundException();
+    const tokenHash = hashToken(token);
+    const organizationId = await db.transaction(async (tx) => {
+      const [found] = await tx
+        .select({
+          organizationId: invitations.organizationId,
+          invitedBy: invitations.invitedBy,
+        })
+        .from(invitations)
+        .where(eq(invitations.tokenHash, tokenHash));
+      if (!found) throw new NotFoundException();
       // Holding the inviter's membership keeps their roles stable while they authorize this.
-      await lockMemberships(
-        client,
-        found.rows[0].organization_id,
-        [found.rows[0].invited_by],
-        'SHARE',
-      );
-      const { rows } = await client.query<{
-        id: string;
-        organization_id: string;
-        email: string;
-        roles: MemberRole[];
-        accepted_by: string | null;
-        pending: boolean;
-      }>(
-        `SELECT i.id, i.organization_id, i.email, i.roles, i.accepted_by, ${PENDING} AS pending
-         FROM organization_invitations i WHERE i.token_hash = $1 FOR UPDATE OF i`,
-        [hashToken(token)],
-      );
-      const invitation = rows[0];
-      if (invitation?.accepted_by === account.id) return invitation.organization_id;
+      await lockMemberships(tx, found.organizationId, [found.invitedBy], 'share');
+      const [invitation] = await tx
+        .select({
+          id: invitations.id,
+          organizationId: invitations.organizationId,
+          email: invitations.email,
+          roles: invitations.roles,
+          acceptedBy: invitations.acceptedBy,
+          pending: PENDING,
+        })
+        .from(invitations)
+        .where(eq(invitations.tokenHash, tokenHash))
+        .for('update', { of: invitations });
+      if (invitation?.acceptedBy === account.id) return invitation.organizationId;
       if (!invitation?.pending) throw new NotFoundException();
       if (invitation.email !== normalizedEmail(account.email))
         throw new ForbiddenException('This invitation was sent to a different email address.');
-      await client.query(
-        `INSERT INTO organization_memberships(organization_id, account_id) VALUES ($1, $2)
-         ON CONFLICT DO NOTHING`,
-        [invitation.organization_id, account.id],
-      );
-      await client.query(
-        `INSERT INTO organization_membership_roles(organization_id, account_id, role)
-         SELECT $1, $2, unnest($3::text[]) ON CONFLICT DO NOTHING`,
-        [invitation.organization_id, account.id, invitation.roles],
-      );
-      await client.query(
-        'UPDATE organization_invitations SET accepted_at = now(), accepted_by = $2 WHERE id = $1',
-        [invitation.id, account.id],
-      );
+      await tx
+        .insert(organizationMemberships)
+        .values({ organizationId: invitation.organizationId, accountId: account.id })
+        .onConflictDoNothing();
+      await tx
+        .insert(organizationMembershipRoles)
+        .values(
+          invitation.roles.map((role) => ({
+            organizationId: invitation.organizationId,
+            accountId: account.id,
+            role,
+          })),
+        )
+        .onConflictDoNothing();
+      await tx
+        .update(invitations)
+        .set({ acceptedAt: now(), acceptedBy: account.id })
+        .where(eq(invitations.id, invitation.id));
       // Other pending invitations that offer nothing new would only linger in the list.
-      await client.query(
-        `UPDATE organization_invitations i SET revoked_at = now()
-         WHERE i.organization_id = $1 AND i.email = $2 AND ${PENDING}
-           AND i.roles <@ ARRAY(
-             SELECT role FROM organization_membership_roles
-             WHERE organization_id = $1 AND account_id = $3)`,
-        [invitation.organization_id, invitation.email, account.id],
-      );
-      return invitation.organization_id;
+      const heldRoles = tx
+        .select({ role: organizationMembershipRoles.role })
+        .from(organizationMembershipRoles)
+        .where(
+          and(
+            eq(organizationMembershipRoles.organizationId, invitation.organizationId),
+            eq(organizationMembershipRoles.accountId, account.id),
+          ),
+        );
+      await tx
+        .update(invitations)
+        .set({ revokedAt: now() })
+        .where(
+          and(
+            eq(invitations.organizationId, invitation.organizationId),
+            eq(invitations.email, invitation.email),
+            PENDING,
+            arrayContained(invitations.roles, sql`ARRAY(${heldRoles})`),
+          ),
+        );
+      return invitation.organizationId;
     });
     return this.organizations.get(account.id, organizationId);
   }

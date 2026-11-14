@@ -1,4 +1,4 @@
-import { database } from './database';
+import { pool } from './database';
 import { applyMigrations } from './migrations';
 
 // Manual entry point; the API also applies pending migrations when it starts.
@@ -7,4 +7,4 @@ void applyMigrations()
     console.error('Database migration failed', error);
     process.exitCode = 1;
   })
-  .finally(() => database.end());
+  .finally(() => pool.end());

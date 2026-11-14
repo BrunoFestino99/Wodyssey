@@ -30,7 +30,7 @@ import {
   type InvitationPreview,
   type SentInvitation,
 } from './invitations.service';
-import { MEMBER_ROLES, type MemberRole } from './organization-access';
+import { MEMBER_ROLES, type MemberRole } from './roles';
 import type { Organization } from './organizations.service';
 import { CurrentAccount, SessionGuard } from './session.guard';
 
