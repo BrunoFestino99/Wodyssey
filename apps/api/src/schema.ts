@@ -155,3 +155,48 @@ export const organizationInvitations = pgTable(
     index('organization_invitations_organization_id').on(table.organizationId, table.createdAt),
   ],
 );
+
+/**
+ * A responsible coach follows an athlete of the same organization. Each side references the
+ * membership role it needs, so losing the coach or athlete role (or the membership) ends the
+ * responsibility in the same statement.
+ */
+export const athleteCoaches = pgTable(
+  'athlete_coaches',
+  {
+    organizationId: uuid('organization_id').notNull(),
+    athleteId: uuid('athlete_id').notNull(),
+    athleteRole: text('athlete_role', { enum: ['athlete'] })
+      .notNull()
+      .default('athlete'),
+    coachId: uuid('coach_id').notNull(),
+    coachRole: text('coach_role', { enum: ['coach'] })
+      .notNull()
+      .default('coach'),
+    assignedAt: timestamptz('assigned_at').notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.organizationId, table.athleteId, table.coachId] }),
+    foreignKey({
+      name: 'athlete_coaches_athlete_role_fk',
+      columns: [table.organizationId, table.athleteId, table.athleteRole],
+      foreignColumns: [
+        organizationMembershipRoles.organizationId,
+        organizationMembershipRoles.accountId,
+        organizationMembershipRoles.role,
+      ],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'athlete_coaches_coach_role_fk',
+      columns: [table.organizationId, table.coachId, table.coachRole],
+      foreignColumns: [
+        organizationMembershipRoles.organizationId,
+        organizationMembershipRoles.accountId,
+        organizationMembershipRoles.role,
+      ],
+    }).onDelete('cascade'),
+    check('athlete_coaches_athlete_role_check', sql`${table.athleteRole} = 'athlete'`),
+    check('athlete_coaches_coach_role_check', sql`${table.coachRole} = 'coach'`),
+    index('athlete_coaches_coach').on(table.organizationId, table.coachId),
+  ],
+);

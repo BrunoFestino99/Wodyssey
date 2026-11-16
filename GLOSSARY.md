@@ -40,6 +40,10 @@ _Evitar_: gimnasio como sinónimo general de organización, cuenta como sinónim
 Persona que publica y asigna entrenamientos a alumnos y revisa su progreso.
 _Evitar_: profe, profesor como términos alternativos en la documentación del dominio.
 
+**Entrenador responsable**:
+Entrenador asignado por el administrador de la organización para acompañar a un alumno; un alumno puede tener varios. Los entrenadores solo consultan a los alumnos bajo su responsabilidad. Mientras la organización tiene un único entrenador, este es responsable de todos sus alumnos.
+_Evitar_: planificador como sinónimo de entrenador responsable, porque planificar un programa no implica acompañar al alumno.
+
 **Alumno**:
 Persona que consulta sus entrenamientos asignados y registra lo realizado.
 _Evitar_: usuario como sinónimo de alumno, porque también hay usuarios entrenadores.

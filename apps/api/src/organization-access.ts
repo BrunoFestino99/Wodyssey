@@ -2,7 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Transaction } from './database';
 import type { MemberRole, OrganizationRole } from './roles';
-import { organizationMembershipRoles, organizationMemberships } from './schema';
+import { organizationMembershipRoles, organizationMemberships, organizations } from './schema';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -27,6 +27,20 @@ export const aggregatedRoles = sql<
   OrganizationRole[]
 >`coalesce(array_agg(${organizationMembershipRoles.role} ORDER BY ${organizationMembershipRoles.role})
   FILTER (WHERE ${organizationMembershipRoles.role} IS NOT NULL), '{}')`;
+
+/**
+ * Serializes changes to who holds which role in an organization, and to the responsibilities
+ * that depend on them, until the transaction ends. Take it before locking any membership.
+ */
+export async function lockOrganization(tx: Transaction, organizationId: string): Promise<void> {
+  assertIdentifier(organizationId);
+  const [found] = await tx
+    .select({ id: organizations.id })
+    .from(organizations)
+    .where(eq(organizations.id, organizationId))
+    .for('no key update');
+  if (!found) throw new NotFoundException();
+}
 
 /**
  * Roles of every listed member, locking their memberships until the transaction ends

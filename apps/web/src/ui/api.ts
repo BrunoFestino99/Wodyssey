@@ -37,6 +37,8 @@ export const MEMBER_ROLES: readonly MemberRole[] = ['coach', 'athlete'];
 export const ORGANIZATION_NAME_MAX_LENGTH = 80;
 export type Organization = { id: string; name: string; roles: OrganizationRole[] };
 export type Member = { accountId: string; email: string; roles: OrganizationRole[] };
+export type ResponsibleCoach = { accountId: string; email: string };
+export type Athlete = { accountId: string; email: string; coaches: ResponsibleCoach[] };
 export type Invitation = {
   id: string;
   email: string;

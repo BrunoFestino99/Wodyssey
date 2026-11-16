@@ -147,10 +147,12 @@ function MemberEntry({
 export function MembersSection({
   organizationId,
   accountEmail,
+  onRolesChanged,
   onOwnRolesChanged,
 }: {
   organizationId: string;
   accountEmail: string;
+  onRolesChanged: () => void;
   onOwnRolesChanged: (roles: OrganizationRole[]) => void;
 }) {
   const loadMembers = useCallback(
@@ -184,6 +186,7 @@ export function MembersSection({
                 onChanged={(changed) => {
                   setUpdated((current) => ({ ...current, [changed.accountId]: changed }));
                   if (self) onOwnRolesChanged(changed.roles);
+                  onRolesChanged();
                 }}
               />
             );

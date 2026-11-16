@@ -3,6 +3,9 @@ import { ApiError, redirectIfSignedOut, request } from './api';
 import { copy } from './copy';
 import { forgetInvitation } from './pending-invitation';
 
+/** A problem a form finds before sending anything, shown to the person as written. */
+export class FormError extends Error {}
+
 /** Messages for response statuses that mean something specific to one form. */
 export type StatusMessages = Partial<Record<number, string>>;
 
@@ -11,6 +14,7 @@ export function errorMessage(
   validation: string = copy.errors.validation,
   statusMessages: StatusMessages = {},
 ): string {
+  if (error instanceof FormError) return error.message;
   if (error instanceof ApiError) {
     const specific = statusMessages[error.status];
     if (specific) return specific;

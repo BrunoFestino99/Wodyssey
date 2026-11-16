@@ -8,6 +8,13 @@
       "when": 1794661027543,
       "tag": "0000_initial",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1794870895755,
+      "tag": "0001_athlete_coaches",
+      "breakpoints": true
     }
   ]
 }

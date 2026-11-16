@@ -32,15 +32,10 @@ export async function verifiedAccount(request: APIRequestContext): Promise<strin
 }
 
 export async function signedInClient(
-  playwright: { request: { newContext(): Promise<APIRequestContext> } },
+  playwright: Playwright,
   setup: APIRequestContext,
 ): Promise<APIRequestContext> {
-  const email = await verifiedAccount(setup);
-  const client = await playwright.request.newContext();
-  expect((await client.post(`${api}/auth/login`, { data: { email, password } })).status()).toBe(
-    200,
-  );
-  return client;
+  return signedInAs(playwright, await verifiedAccount(setup));
 }
 
 /** Signs in through the web form and waits for the signed-in landing screen. */
@@ -50,4 +45,24 @@ export async function signIn(page: Page, email: string, value = password) {
   await page.getByLabel('Password', { exact: true }).fill(value);
   await page.getByLabel('Password', { exact: true }).press('Enter');
   await expect(page.getByRole('heading', { name: 'Your training space' })).toBeVisible();
+}
+
+export type Playwright = { request: { newContext(): Promise<APIRequestContext> } };
+
+/** An API client signed in as an existing verified account. */
+export async function signedInAs(playwright: Playwright, email: string) {
+  const client = await playwright.request.newContext();
+  expect((await client.post(`${api}/auth/login`, { data: { email, password } })).status()).toBe(
+    200,
+  );
+  return client;
+}
+
+/** Signs in through the web form as a member, which resumes their organization. */
+export async function signInToOrganization(page: Page, email: string, organization: string) {
+  await page.goto('/login');
+  await page.getByLabel('Email address').fill(email);
+  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByLabel('Password', { exact: true }).press('Enter');
+  await expect(page.getByRole('heading', { name: organization, level: 1 })).toBeVisible();
 }
