@@ -1,3 +1,6 @@
+# Full development environment with hot reload: `docker compose up`.
+# `npm run dev:db` starts only PostgreSQL, for `npm run dev`.
+# Ports can be changed with POSTGRES_PORT, PORT and WEB_PORT in .env.
 services:
   postgres:
     image: postgres:17-alpine
@@ -6,14 +9,67 @@ services:
       POSTGRES_USER: wodyssey
       POSTGRES_PASSWORD: wodyssey
     ports:
-      - "5432:5432"
+      - '${POSTGRES_PORT:-5432}:5432'
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U wodyssey -d wodyssey"]
+      test: ['CMD-SHELL', 'pg_isready -U wodyssey -d wodyssey']
       interval: 2s
       timeout: 3s
       retries: 20
     volumes:
       - wodyssey-postgres:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://wodyssey:wodyssey@postgres:5432/wodyssey
+      WEB_ORIGIN: http://localhost:${WEB_PORT:-5173}
+      EMAIL_TRANSPORT: memory
+      TEST_MAILBOX_ENABLED: 'true'
+    ports:
+      - '${PORT:-3000}:3000'
+    volumes:
+      - ./apps/api/src:/app/apps/api/src
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: development
+    environment:
+      VITE_API_URL: http://localhost:${PORT:-3000}
+      WEB_ORIGIN: http://localhost:${WEB_PORT:-5173}
+      WATCH_POLLING: 'true'
+    ports:
+      - '${WEB_PORT:-5173}:5173'
+    volumes:
+      - ./apps/web/src:/app/apps/web/src
+      - ./apps/web/index.html:/app/apps/web/index.html
+      - ./apps/web/vite.config.ts:/app/apps/web/vite.config.ts
+    healthcheck:
+      # Any answer counts: the canonical origin redirect also means Vite is serving.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:5173', { redirect: 'manual' }).then((r) => process.exit(r.status < 400 ? 0 : 1), () => process.exit(1))"
+      interval: 2s
+      timeout: 3s
+      retries: 60
 
 volumes:
   wodyssey-postgres:

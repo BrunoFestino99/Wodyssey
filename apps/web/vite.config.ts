@@ -29,5 +29,9 @@ export default defineConfig({
       },
     },
   ],
-  server: { port: 5173 },
+  server: {
+    port: 5173,
+    // Docker Compose sets this: file events from a bind-mounted host folder do not reach every container.
+    watch: process.env.WATCH_POLLING === 'true' ? { usePolling: true, interval: 300 } : undefined,
+  },
 });
