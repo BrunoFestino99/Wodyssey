@@ -14,6 +14,7 @@ import {
   actorRoles,
   assertIdentifier,
   lockMemberships,
+  lockOrganization,
   mayFollowUpInvitations,
   mayInvite,
   sortedRoles,
@@ -27,6 +28,7 @@ import {
   organizationMemberships,
   organizations,
 } from './schema';
+import { assignSoleCoach } from './sole-coach';
 
 const DEFAULT_INVITATION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -264,6 +266,7 @@ export class InvitationsService {
         .from(invitations)
         .where(eq(invitations.tokenHash, tokenHash));
       if (!found) throw new NotFoundException();
+      await lockOrganization(tx, found.organizationId);
       // Holding the inviter's membership keeps their roles stable while they authorize this.
       await lockMemberships(tx, found.organizationId, [found.invitedBy], 'share');
       const [invitation] = await tx
@@ -300,6 +303,7 @@ export class InvitationsService {
         .update(invitations)
         .set({ acceptedAt: now(), acceptedBy: account.id })
         .where(eq(invitations.id, invitation.id));
+      await assignSoleCoach(tx, invitation.organizationId);
       // Other pending invitations that offer nothing new would only linger in the list.
       const heldRoles = tx
         .select({ role: organizationMembershipRoles.role })

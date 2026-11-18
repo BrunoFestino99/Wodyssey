@@ -1,6 +1,8 @@
 import { Module, type OnApplicationShutdown } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { AthletesController } from './athletes.controller';
+import { AthletesService } from './athletes.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { AccountEmailSender } from './email';
@@ -27,6 +29,7 @@ import { SessionGuard } from './session.guard';
     HealthController,
     OrganizationsController,
     MembersController,
+    AthletesController,
     OrganizationInvitationsController,
     InvitationsController,
   ],
@@ -35,6 +38,7 @@ import { SessionGuard } from './session.guard';
     AccountEmailSender,
     OrganizationsService,
     MembersService,
+    AthletesService,
     InvitationsService,
     SessionGuard,
     { provide: APP_GUARD, useClass: ThrottlerGuard },

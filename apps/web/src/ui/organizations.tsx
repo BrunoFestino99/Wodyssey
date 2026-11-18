@@ -7,6 +7,7 @@ import {
   type Account,
   type Organization,
 } from './api';
+import { AthletesSection } from './athletes';
 import {
   ActionForm,
   Brand,
@@ -336,6 +337,8 @@ function Workspace({
 }: WorkspaceData & { organization: Organization }) {
   const [organization, setOrganization] = useState(loaded);
   const [organizations, setOrganizations] = useState(loadedList);
+  // Role changes can change which coaches are responsible for which athletes.
+  const [athletesVersion, setAthletesVersion] = useState(0);
   const heading = useFocusOnChange<HTMLHeadingElement>(loaded.id);
   useEffect(() => rememberOrganization(loaded.id), [loaded.id]);
   const administrator = organization.roles.includes('administrator');
@@ -363,6 +366,7 @@ function Workspace({
           <MembersSection
             organizationId={organization.id}
             accountEmail={account.email}
+            onRolesChanged={() => setAthletesVersion((version) => version + 1)}
             onOwnRolesChanged={(roles) => {
               const changed = { ...organization, roles };
               setOrganization(changed);
@@ -370,6 +374,14 @@ function Workspace({
                 list.map((item) => (item.id === changed.id ? changed : item)),
               );
             }}
+          />
+        )}
+        {(administrator || coach) && (
+          <AthletesSection
+            key={athletesVersion}
+            organizationId={organization.id}
+            accountEmail={account.email}
+            administrator={administrator}
           />
         )}
         {administrator && (

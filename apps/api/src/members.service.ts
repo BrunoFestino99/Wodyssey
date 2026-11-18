@@ -10,12 +10,14 @@ import {
   aggregatedRoles,
   assertIdentifier,
   lockMemberships,
+  lockOrganization,
   membershipRolesJoin,
   sortedRoles,
 } from './organization-access';
 import { OrganizationsService } from './organizations.service';
 import { MEMBER_ROLES, type MemberRole, type OrganizationRole } from './roles';
 import { accounts, organizationMembershipRoles, organizationMemberships } from './schema';
+import { assignSoleCoach } from './sole-coach';
 
 export type Member = { accountId: string; email: string; roles: OrganizationRole[] };
 
@@ -52,6 +54,7 @@ export class MembersService {
   ): Promise<Member> {
     assertIdentifier(accountId);
     return db.transaction(async (tx) => {
+      await lockOrganization(tx, organizationId);
       const locked = await lockMemberships(tx, organizationId, [actorId, accountId], 'update');
       const actor = locked.get(actorId);
       if (!actor) throw new NotFoundException();
@@ -78,6 +81,8 @@ export class MembersService {
           .insert(organizationMembershipRoles)
           .values(memberRoles.map((role) => ({ organizationId, accountId, role })))
           .onConflictDoNothing();
+      // Responsibilities of a removed coach or athlete role ended with it (by cascade).
+      await assignSoleCoach(tx, organizationId);
       const [member] = await tx
         .select({ email: accounts.email })
         .from(accounts)
