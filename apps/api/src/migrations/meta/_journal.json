@@ -15,6 +15,13 @@
       "when": 1794870895755,
       "tag": "0001_athlete_coaches",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794960168934,
+      "tag": "0002_sole_coach_backfill",
+      "breakpoints": true
     }
   ]
 }

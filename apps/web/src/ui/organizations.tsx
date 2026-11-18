@@ -338,7 +338,7 @@ function Workspace({
   const [organization, setOrganization] = useState(loaded);
   const [organizations, setOrganizations] = useState(loadedList);
   // Role changes can change which coaches are responsible for which athletes.
-  const [rosterVersion, setRosterVersion] = useState(0);
+  const [athletesVersion, setAthletesVersion] = useState(0);
   const heading = useFocusOnChange<HTMLHeadingElement>(loaded.id);
   useEffect(() => rememberOrganization(loaded.id), [loaded.id]);
   const administrator = organization.roles.includes('administrator');
@@ -366,7 +366,7 @@ function Workspace({
           <MembersSection
             organizationId={organization.id}
             accountEmail={account.email}
-            onRolesChanged={() => setRosterVersion((version) => version + 1)}
+            onRolesChanged={() => setAthletesVersion((version) => version + 1)}
             onOwnRolesChanged={(roles) => {
               const changed = { ...organization, roles };
               setOrganization(changed);
@@ -378,7 +378,7 @@ function Workspace({
         )}
         {(administrator || coach) && (
           <AthletesSection
-            key={rosterVersion}
+            key={athletesVersion}
             organizationId={organization.id}
             accountEmail={account.email}
             administrator={administrator}

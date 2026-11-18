@@ -30,7 +30,9 @@ export const aggregatedRoles = sql<
 
 /**
  * Serializes changes to who holds which role in an organization, and to the responsibilities
- * that depend on them, until the transaction ends. Take it before locking any membership.
+ * that depend on them, until the transaction ends. Every transaction that takes it does so
+ * before locking any membership, so those transactions cannot deadlock one another; paths
+ * that only read memberships lock them without it.
  */
 export async function lockOrganization(tx: Transaction, organizationId: string): Promise<void> {
   assertIdentifier(organizationId);

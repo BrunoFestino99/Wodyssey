@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { MEMBER_ROLES, request, type Member, type MemberRole, type OrganizationRole } from './api';
 import {
   ActionForm,
   LoadedPanel,
   signedIn,
+  useInlineEditor,
   useSignedInLoad,
   type SignedInLoad,
 } from './components';
@@ -65,21 +66,8 @@ function MemberEntry({
   self: boolean;
   onChanged: (member: Member) => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const editButton = useRef<HTMLButtonElement>(null);
-  const returnFocus = useRef(false);
+  const editor = useInlineEditor();
   const memberRoles = member.roles.filter((role): role is MemberRole => role !== 'administrator');
-  // Closing the editor returns focus to the control that opened it, once that is rendered again.
-  useEffect(() => {
-    if (editing || !returnFocus.current) return;
-    returnFocus.current = false;
-    editButton.current?.focus();
-  }, [editing]);
-  const close = () => {
-    returnFocus.current = true;
-    setEditing(false);
-  };
   return (
     <li className="entry">
       <div className="entry-details">
@@ -88,13 +76,13 @@ function MemberEntry({
           {self && <span className="entry-tag">{copy.members.selfTag}</span>}
         </p>
         <RoleChips roles={member.roles} label={copy.members.rolesOf(member.email)} />
-        {saved && !editing && (
+        {editor.saved && !editor.editing && (
           <p className="success entry-feedback" role="status">
             {copy.members.saved(member.email)}
           </p>
         )}
       </div>
-      {editing ? (
+      {editor.editing ? (
         <div className="entry-editor">
           <ActionForm
             label={copy.members.save}
@@ -109,8 +97,7 @@ function MemberEntry({
               );
               if (!updated) return;
               onChanged(updated);
-              setSaved(true);
-              close();
+              editor.finish();
             }}
           >
             <RoleCheckboxes
@@ -119,21 +106,18 @@ function MemberEntry({
               checked={memberRoles}
             />
           </ActionForm>
-          <button className="text-button" type="button" onClick={close}>
+          <button className="text-button" type="button" onClick={editor.cancel}>
             {copy.members.cancel}
           </button>
         </div>
       ) : (
         <div className="entry-actions">
           <button
-            ref={editButton}
+            ref={editor.opener}
             className="secondary"
             type="button"
             aria-label={copy.members.editRolesOf(member.email)}
-            onClick={() => {
-              setSaved(false);
-              setEditing(true);
-            }}
+            onClick={editor.open}
           >
             {copy.members.editRoles}
           </button>

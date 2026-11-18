@@ -4,7 +4,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, exists, inArray, notInArray, sql } from 'drizzle-orm';
+import { and, eq, exists, notInArray, sql, type SQL } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { db, type Transaction } from './database';
 import {
   actorRoles,
@@ -29,63 +30,59 @@ const athleteRole = and(
   eq(organizationMembershipRoles.role, 'athlete'),
 );
 
-/** Athletes of the organization, optionally only those a coach is responsible for. */
-async function athletes(
+const coachAccounts = alias(accounts, 'coach_accounts');
+const responsibility = alias(athleteCoaches, 'responsibility');
+
+/** The responsible coaches joined to an athlete, ordered, or an empty array when there are none. */
+const responsibleCoaches = sql<ResponsibleCoach[]>`coalesce(
+  json_agg(json_build_object('accountId', ${coachAccounts.id}, 'email', ${coachAccounts.email})
+    ORDER BY ${coachAccounts.email}) FILTER (WHERE ${coachAccounts.id} IS NOT NULL),
+  '[]')`;
+
+/** Keeps the athletes a coach is responsible for. */
+const responsibleFor = (coachId: string) =>
+  exists(
+    db
+      .select({ one: sql`1` })
+      .from(responsibility)
+      .where(
+        and(
+          eq(responsibility.organizationId, organizationMemberships.organizationId),
+          eq(responsibility.athleteId, organizationMemberships.accountId),
+          eq(responsibility.coachId, coachId),
+        ),
+      ),
+  );
+
+/**
+ * Athletes of the organization that match `condition`, with their responsible coaches. One
+ * statement reads both, so the coaches always belong to the athletes returned with them.
+ */
+async function athletesWhere(
   tx: Transaction,
   organizationId: string,
-  filter: { athleteId?: string; coachId?: string },
+  condition?: SQL,
 ): Promise<Athlete[]> {
-  const found = await tx
-    .select({ accountId: organizationMemberships.accountId, email: accounts.email })
+  return tx
+    .select({
+      accountId: organizationMemberships.accountId,
+      email: accounts.email,
+      coaches: responsibleCoaches,
+    })
     .from(organizationMemberships)
     .innerJoin(organizationMembershipRoles, athleteRole)
     .innerJoin(accounts, eq(accounts.id, organizationMemberships.accountId))
-    .where(
+    .leftJoin(
+      athleteCoaches,
       and(
-        eq(organizationMemberships.organizationId, organizationId),
-        filter.athleteId ? eq(organizationMemberships.accountId, filter.athleteId) : undefined,
-        filter.coachId
-          ? exists(
-              tx
-                .select({ one: sql`1` })
-                .from(athleteCoaches)
-                .where(
-                  and(
-                    eq(athleteCoaches.organizationId, organizationId),
-                    eq(athleteCoaches.athleteId, organizationMemberships.accountId),
-                    eq(athleteCoaches.coachId, filter.coachId),
-                  ),
-                ),
-            )
-          : undefined,
+        eq(athleteCoaches.organizationId, organizationMemberships.organizationId),
+        eq(athleteCoaches.athleteId, organizationMemberships.accountId),
       ),
     )
+    .leftJoin(coachAccounts, eq(coachAccounts.id, athleteCoaches.coachId))
+    .where(and(eq(organizationMemberships.organizationId, organizationId), condition))
+    .groupBy(organizationMemberships.organizationId, organizationMemberships.accountId, accounts.id)
     .orderBy(organizationMemberships.joinedAt, accounts.email);
-  if (found.length === 0) return [];
-  const assigned = await tx
-    .select({
-      athleteId: athleteCoaches.athleteId,
-      accountId: athleteCoaches.coachId,
-      email: accounts.email,
-    })
-    .from(athleteCoaches)
-    .innerJoin(accounts, eq(accounts.id, athleteCoaches.coachId))
-    .where(
-      and(
-        eq(athleteCoaches.organizationId, organizationId),
-        inArray(
-          athleteCoaches.athleteId,
-          found.map((athlete) => athlete.accountId),
-        ),
-      ),
-    )
-    .orderBy(accounts.email);
-  return found.map((athlete) => ({
-    ...athlete,
-    coaches: assigned
-      .filter((coach) => coach.athleteId === athlete.accountId)
-      .map(({ accountId, email }) => ({ accountId, email })),
-  }));
 }
 
 @Injectable()
@@ -94,8 +91,9 @@ export class AthletesService {
   async list(actorId: string, organizationId: string): Promise<Athlete[]> {
     return db.transaction(async (tx) => {
       const roles = await actorRoles(tx, organizationId, actorId);
-      if (roles.includes('administrator')) return athletes(tx, organizationId, {});
-      if (roles.includes('coach')) return athletes(tx, organizationId, { coachId: actorId });
+      if (roles.includes('administrator')) return athletesWhere(tx, organizationId);
+      if (roles.includes('coach'))
+        return athletesWhere(tx, organizationId, responsibleFor(actorId));
       throw new ForbiddenException();
     });
   }
@@ -138,7 +136,11 @@ export class AthletesService {
         .insert(athleteCoaches)
         .values(coachIds.map((coachId) => ({ organizationId, athleteId, coachId })))
         .onConflictDoNothing();
-      const [athlete] = await athletes(tx, organizationId, { athleteId });
+      const [athlete] = await athletesWhere(
+        tx,
+        organizationId,
+        eq(organizationMemberships.accountId, athleteId),
+      );
       return athlete;
     });
   }

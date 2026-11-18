@@ -1,9 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { request, type Athlete, type Member, type ResponsibleCoach } from './api';
-import { ActionForm, FormError, LoadedPanel, signedIn, useSignedInLoad } from './components';
+import {
+  ActionForm,
+  FormError,
+  LoadedPanel,
+  signedIn,
+  useInlineEditor,
+  useSignedInLoad,
+} from './components';
 import { copy } from './copy';
 
-type Roster = { athletes: Athlete[]; coaches: ResponsibleCoach[] };
+type AthletesAndCoaches = { athletes: Athlete[]; coaches: ResponsibleCoach[] };
 
 const athletesPath = (organizationId: string) =>
   `/organizations/${encodeURIComponent(organizationId)}/athletes`;
@@ -36,20 +43,7 @@ function AthleteEntry({
   coaches?: ResponsibleCoach[];
   onChanged: (athlete: Athlete) => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const assignButton = useRef<HTMLButtonElement>(null);
-  const returnFocus = useRef(false);
-  // Closing the editor returns focus to the control that opened it, once that is rendered again.
-  useEffect(() => {
-    if (editing || !returnFocus.current) return;
-    returnFocus.current = false;
-    assignButton.current?.focus();
-  }, [editing]);
-  const close = () => {
-    returnFocus.current = true;
-    setEditing(false);
-  };
+  const editor = useInlineEditor();
   const assigned = new Set(athlete.coaches.map((coach) => coach.accountId));
   return (
     <li className="entry">
@@ -59,13 +53,13 @@ function AthleteEntry({
           {self && <span className="entry-tag">{copy.members.selfTag}</span>}
         </p>
         <CoachChips athlete={athlete} />
-        {saved && !editing && (
+        {editor.saved && !editor.editing && (
           <p className="success entry-feedback" role="status">
             {copy.athletes.saved(athlete.email)}
           </p>
         )}
       </div>
-      {coaches && coaches.length > 0 && editing && (
+      {coaches && coaches.length > 0 && editor.editing && (
         <div className="entry-editor">
           <ActionForm
             label={copy.athletes.save}
@@ -82,8 +76,7 @@ function AthleteEntry({
               );
               if (!updated) return;
               onChanged(updated);
-              setSaved(true);
-              close();
+              editor.finish();
             }}
           >
             <fieldset
@@ -104,22 +97,19 @@ function AthleteEntry({
               ))}
             </fieldset>
           </ActionForm>
-          <button className="text-button" type="button" onClick={close}>
+          <button className="text-button" type="button" onClick={editor.cancel}>
             {copy.athletes.cancel}
           </button>
         </div>
       )}
-      {coaches && coaches.length > 0 && !editing && (
+      {coaches && coaches.length > 0 && !editor.editing && (
         <div className="entry-actions">
           <button
-            ref={assignButton}
+            ref={editor.opener}
             className="secondary"
             type="button"
             aria-label={copy.athletes.assignTo(athlete.email)}
-            onClick={() => {
-              setSaved(false);
-              setEditing(true);
-            }}
+            onClick={editor.open}
           >
             {copy.athletes.assign}
           </button>
@@ -142,7 +132,7 @@ export function AthletesSection({
   accountEmail: string;
   administrator: boolean;
 }) {
-  const loadRoster = useCallback(async (): Promise<Roster> => {
+  const loadAthletes = useCallback(async (): Promise<AthletesAndCoaches> => {
     const [athletes, members] = await Promise.all([
       request<Athlete[]>(athletesPath(organizationId)),
       administrator
@@ -155,9 +145,9 @@ export function AthletesSection({
       .sort((a, b) => a.email.localeCompare(b.email));
     return { athletes, coaches };
   }, [organizationId, administrator]);
-  const load = useSignedInLoad(loadRoster);
+  const load = useSignedInLoad(loadAthletes);
   const [updated, setUpdated] = useState<Record<string, Athlete>>({});
-  const rosterLoad =
+  const athletesLoad =
     load.state === 'ready'
       ? {
           state: 'ready' as const,
@@ -172,7 +162,7 @@ export function AthletesSection({
       labelledBy="organization-athletes"
       title={copy.athletes.title}
       description={administrator ? copy.athletes.adminDescription : copy.athletes.coachDescription}
-      load={rosterLoad}
+      load={athletesLoad}
       failure={copy.athletes.loadFailed}
     >
       {({ athletes, coaches }) => (

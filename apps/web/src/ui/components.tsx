@@ -6,6 +6,41 @@ import { forgetInvitation } from './pending-invitation';
 /** A problem a form finds before sending anything, shown to the person as written. */
 export class FormError extends Error {}
 
+/**
+ * State of an entry's inline editor. Attach `opener` to the button that opens it: closing the
+ * editor returns focus there once it is rendered again. `saved` reports a finished edit until
+ * the editor opens again.
+ */
+export function useInlineEditor() {
+  const [editing, setEditing] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const opener = useRef<HTMLButtonElement>(null);
+  const returnFocus = useRef(false);
+  useEffect(() => {
+    if (editing || !returnFocus.current) return;
+    returnFocus.current = false;
+    opener.current?.focus();
+  }, [editing]);
+  const close = () => {
+    returnFocus.current = true;
+    setEditing(false);
+  };
+  return {
+    editing,
+    saved,
+    opener,
+    open: () => {
+      setSaved(false);
+      setEditing(true);
+    },
+    cancel: close,
+    finish: () => {
+      setSaved(true);
+      close();
+    },
+  };
+}
+
 /** Messages for response statuses that mean something specific to one form. */
 export type StatusMessages = Partial<Record<number, string>>;
 

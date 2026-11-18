@@ -38,12 +38,16 @@ export async function signedInClient(
   return signedInAs(playwright, await verifiedAccount(setup));
 }
 
-/** Signs in through the web form and waits for the signed-in landing screen. */
-export async function signIn(page: Page, email: string, value = password) {
+async function submitSignIn(page: Page, email: string, value: string) {
   await page.goto('/login');
   await page.getByLabel('Email address').fill(email);
   await page.getByLabel('Password', { exact: true }).fill(value);
   await page.getByLabel('Password', { exact: true }).press('Enter');
+}
+
+/** Signs in through the web form and waits for the signed-in landing screen. */
+export async function signIn(page: Page, email: string, value = password) {
+  await submitSignIn(page, email, value);
   await expect(page.getByRole('heading', { name: 'Your training space' })).toBeVisible();
 }
 
@@ -60,9 +64,6 @@ export async function signedInAs(playwright: Playwright, email: string) {
 
 /** Signs in through the web form as a member, which resumes their organization. */
 export async function signInToOrganization(page: Page, email: string, organization: string) {
-  await page.goto('/login');
-  await page.getByLabel('Email address').fill(email);
-  await page.getByLabel('Password', { exact: true }).fill(password);
-  await page.getByLabel('Password', { exact: true }).press('Enter');
+  await submitSignIn(page, email, password);
   await expect(page.getByRole('heading', { name: organization, level: 1 })).toBeVisible();
 }

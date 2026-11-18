@@ -112,7 +112,7 @@ test('an administrator assigns responsible coaches, who see only their athletes'
   await page.screenshot({ path: testInfo.outputPath('coach-view.png'), fullPage: true });
 });
 
-test('administrators see why athletes cannot be assigned yet, and athletes see no roster', async ({
+test('administrators see why athletes cannot be assigned yet, and athletes do not see the athletes section', async ({
   page,
   playwright,
   request,
@@ -149,8 +149,10 @@ test('administrators see why athletes cannot be assigned yet, and athletes see n
   await page.reload();
   await athletes.getByRole('button', { name: `Assign coaches to ${athlete}` }).click();
   await athletes.getByRole('checkbox', { name: leaving }).check();
-  const roster = await (await admin.get(`${api}/organizations/${organization.id}/members`)).json();
-  const { accountId } = roster.find((member: { email: string }) => member.email === leaving);
+  const everyone = await (
+    await admin.get(`${api}/organizations/${organization.id}/members`)
+  ).json();
+  const { accountId } = everyone.find((member: { email: string }) => member.email === leaving);
   expect(
     (
       await admin.patch(`${api}/organizations/${organization.id}/members/${accountId}`, {
